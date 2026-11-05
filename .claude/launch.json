@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "D:\\My Projects - Nameer\\AI Interview Copilot\\backend\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--app-dir", "D:\\My Projects - Nameer\\AI Interview Copilot\\backend", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
+      "runtimeArgs": ["--prefix", "D:\\My Projects - Nameer\\AI Interview Copilot\\frontend", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}
