@@ -48,6 +48,38 @@ npm run dev                     # http://localhost:3000
 
 The home page shows whether the backend is reachable and which providers are configured.
 
+## Live copilot (Phase 1)
+
+Open http://localhost:3000/copilot (Chrome or Edge; tab audio capture isn't supported elsewhere).
+
+- **Meeting tab + mic:** press Start, pick the Zoom/Meet/Teams browser tab, turn on
+  "Share tab audio", allow the mic. Use headphones so the mic doesn't hear the interviewer.
+- **Practice (mic only):** read questions out loud yourself.
+- **No call to test with?** Open http://localhost:3000/demo/mock-interview.wav in another
+  tab, press Start and share that tab.
+
+Replay the mock interview straight into the backend and print per-turn timings:
+
+```bash
+cd backend
+python -m scripts.replay_interview
+```
+
+Rebuild the recording (Windows' built-in voice):
+
+```bash
+powershell -ExecutionPolicy Bypass -File backend/scripts/make_mock_interview.ps1
+```
+
+How it works: the browser sends 16 kHz PCM per channel over `/ws/session`. The backend cuts
+speech into utterances when it hears 0.8 s of silence (`VAD_SILENCE_MS`), transcribes each
+with Groq Whisper, and when an interviewer utterance looks like a question it streams an
+answer from the LLM. Figures in an answer that the CV doesn't state are highlighted.
+
+Free-tier limits to keep in mind: `gpt-oss-120b` allows 8,000 tokens a minute (about 6
+answers a minute), and every partial transcript (`STT_PARTIAL_INTERVAL_MS`, 0 = off) is an
+extra Whisper request.
+
 ## Rebranding
 
 Edit `frontend/src/config/brand.ts` (name, tagline, logo, colours). Nothing else needs changing.

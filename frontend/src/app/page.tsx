@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { brand } from "@/config/brand";
 import { BackendStatus } from "@/components/BackendStatus";
 
@@ -15,10 +16,13 @@ export default function Home() {
         </h1>
         <p className="text-lg text-muted">{brand.tagline}</p>
       </div>
+      <Link
+        href="/copilot"
+        className="rounded-lg bg-primary px-5 py-2.5 font-medium text-primary-foreground hover:opacity-90"
+      >
+        Open the live copilot
+      </Link>
       <BackendStatus />
-      <p className="text-sm text-muted">
-        Phase 0 (foundations). The live copilot view arrives in Phase 1.
-      </p>
     </main>
   );
 }

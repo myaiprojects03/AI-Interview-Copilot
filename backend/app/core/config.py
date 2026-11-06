@@ -4,15 +4,19 @@ Secrets are never hard-coded. Providers are chosen by name so they can be swappe
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env"),
+        # Same file whichever folder the server is started from.
+        env_file=(BACKEND_DIR.parent / ".env", BACKEND_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -41,6 +45,14 @@ class Settings(BaseSettings):
     database_url: SecretStr | None = None
 
     request_timeout_seconds: float = 30.0
+
+    # Real-time pipeline tuning.
+    vad_silence_ms: int = 800  # quiet time that ends an utterance
+    vad_threshold_db: float = -45.0
+    # Partial transcripts re-send the in-progress audio to STT every N ms (interviewer only).
+    # Each partial is one extra STT request against the free-tier rate limit; 0 turns them off.
+    stt_partial_interval_ms: int = 2000
+    answer_max_tokens: int = 700
 
 
 @lru_cache
