@@ -144,6 +144,34 @@ async def test_candidate_answer_stops_follow_up_merge():
     assert starts == ["What is Redis?", "Why do you want this job?"]
 
 
+async def test_figures_from_the_question_are_not_flagged():
+    llm = FakeLLM("In five years I want to lead a team, and in 3 years ship a 40% faster API.")
+    session, events = make(ScriptedSTT(["Where do you see yourself in five years?"]), llm)
+    await session.start()
+    speak(session, INTERVIEWER)
+    await wait_for(events, lambda e: e["type"] == "suggestion_end")
+    await session.close()
+    end = next(e for e in events if e["type"] == "suggestion_end")
+    assert end["unverified"] == ["3 years", "40%"]
+
+
+async def test_gap_skills_mentioned_in_an_answer_are_reported():
+    from app.answer.gaps import SkillGap
+    from app.answer.retrieval import InterviewContext
+
+    llm = FakeLLM("I deployed services on AWS and know Redis well.")
+    session, events = make(ScriptedSTT(["Why should we hire you?"]), llm)
+    session.context = InterviewContext(
+        sample_cv_text="Redis caching expert.", gaps=[SkillGap("AWS", ("AWS",))]
+    )
+    await session.start()
+    speak(session, INTERVIEWER)
+    await wait_for(events, lambda e: e["type"] == "suggestion_end")
+    await session.close()
+    end = next(e for e in events if e["type"] == "suggestion_end")
+    assert end["gap_mentions"] == [{"skill": "AWS", "matches": ["AWS"]}]
+
+
 async def test_controls_stop_regenerate_and_answer_now():
     session, events = make(ScriptedSTT(["That sounds good."]), SlowLLM())
     await session.start()

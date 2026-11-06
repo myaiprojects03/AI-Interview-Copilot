@@ -1,5 +1,5 @@
+from app.answer.prompts import SAMPLE_CV
 from app.realtime.factcheck import unverified_figures
-from app.realtime.prompts import SAMPLE_CV
 
 
 def test_flags_invented_figures():
@@ -16,6 +16,13 @@ def test_ignores_plain_numbers_and_cv_figures():
         "At Kitecart we served 2M requests; search 70% faster."
     )
     assert unverified_figures(answer, SAMPLE_CV) == []
+
+
+def test_spelled_out_and_hyphenated_figures():
+    answer = "We shipped within a three‑month sprint and errors fell 80 %."
+    assert unverified_figures(answer, SAMPLE_CV) == ["three‑month", "80 %"]
+    # "6 years" is in the CV, so "six years" is fine.
+    assert unverified_figures("I have six years of experience.", SAMPLE_CV) == []
 
 
 def test_part_of_a_cv_number_is_not_a_match():

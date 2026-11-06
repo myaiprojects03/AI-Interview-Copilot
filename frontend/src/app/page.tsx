@@ -16,12 +16,20 @@ export default function Home() {
         </h1>
         <p className="text-lg text-muted">{brand.tagline}</p>
       </div>
-      <Link
-        href="/copilot"
-        className="rounded-lg bg-primary px-5 py-2.5 font-medium text-primary-foreground hover:opacity-90"
-      >
-        Open the live copilot
-      </Link>
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href="/documents"
+          className="rounded-lg border border-black/15 px-5 py-2.5 font-medium hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
+        >
+          1. Add your CV &amp; job description
+        </Link>
+        <Link
+          href="/copilot"
+          className="rounded-lg bg-primary px-5 py-2.5 font-medium text-primary-foreground hover:opacity-90"
+        >
+          2. Open the live copilot
+        </Link>
+      </div>
       <BackendStatus />
     </main>
   );

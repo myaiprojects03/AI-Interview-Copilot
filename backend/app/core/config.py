@@ -41,8 +41,16 @@ class Settings(BaseSettings):
     # Google Gemini (free tier), optional LLM fallback, wired in a later phase.
     gemini_api_key: SecretStr | None = None
 
-    # Supabase Postgres + pgvector (free tier), used from Phase 2.
+    # Supabase Postgres + pgvector (free tier). Without it, documents live in memory and are
+    # lost on restart (fine for tests and a first try, not for real use).
     database_url: SecretStr | None = None
+
+    # Local embeddings (fastembed, free). "fake" is a keyword-hash stand-in for tests.
+    embedding_provider: Literal["local", "fake"] = "local"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+
+    # Until sign-in arrives (Phase 3) every request acts as this one user.
+    dev_user_id: str = "local-dev"
 
     request_timeout_seconds: float = 30.0
 

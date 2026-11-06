@@ -3,8 +3,11 @@ import { API_URL } from "@/lib/api";
 export const CHANNEL = { interviewer: 0, candidate: 1 } as const;
 export type ChannelName = keyof typeof CHANNEL;
 export type SessionType = "mixed" | "behavioral" | "technical";
+export type QuestionType = "behavioral" | "technical" | "general";
+export type GapMention = { skill: string; matches: string[] };
 
 export type Timings = {
+  retrieval_ms?: number;
   stt_ms?: number;
   llm_first_token_ms?: number;
   speech_end_to_first_token_ms?: number;
@@ -23,7 +26,22 @@ export type ServerEvent =
       stt_ms?: number;
     }
   | { type: "transcript_discard"; channel: ChannelName; utterance_id: number }
-  | { type: "suggestion_start"; id: number; question: string }
+  | {
+      type: "context";
+      cv: { id: string; title: string } | null;
+      jd: { id: string; title: string } | null;
+      using_sample_cv: boolean;
+      /** Skills the job asks for that the CV doesn't show. */
+      gaps: string[];
+    }
+  | {
+      type: "suggestion_start";
+      id: number;
+      question: string;
+      question_type: QuestionType;
+      /** CV roles/sections the answer drew on. */
+      sources: string[];
+    }
   | { type: "suggestion_delta"; id: number; text: string }
   | {
       type: "suggestion_end";
@@ -32,11 +50,19 @@ export type ServerEvent =
       timings: Timings;
       /** Figures in the answer that the CV never states. */
       unverified: string[];
+      /** Job skills the CV doesn't show that the answer mentions. */
+      gap_mentions: GapMention[];
     }
   | { type: "error"; message: string; retryable?: boolean };
 
 export type ControlMessage =
-  | { type: "start"; session_type: SessionType }
+  | {
+      type: "start";
+      session_type: SessionType;
+      /** A document id, or null for none (the sample CV is used when there's no CV). */
+      cv_id: string | null;
+      jd_id: string | null;
+    }
   | { type: "set_session_type"; session_type: SessionType }
   | { type: "pause" }
   | { type: "answer_now" }

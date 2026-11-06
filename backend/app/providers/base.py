@@ -53,36 +53,18 @@ class STTProvider(ABC):
 
 
 class EmbeddingProvider(ABC):
+    """Unit-length vectors, so a dot product is the cosine similarity.
+
+    Passages (CV/JD chunks) and queries (interview questions) are embedded separately
+    because retrieval models like bge add an instruction to queries.
+    The vector store lives in app/documents/store.py (Postgres + pgvector, or in-memory).
+    """
+
     name: str
     dimensions: int
 
     @abstractmethod
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Return one vector per input text."""
-
-
-@dataclass(frozen=True)
-class RetrievedChunk:
-    text: str
-    score: float
-    metadata: dict
-
-
-class VectorStore(ABC):
-    name: str
+    async def embed_passages(self, texts: list[str]) -> list[list[float]]: ...
 
     @abstractmethod
-    async def upsert(
-        self, user_id: str, items: list[tuple[str, list[float], dict]]
-    ) -> None:
-        """Store (text, vector, metadata) items. Always scoped to one user."""
-
-    @abstractmethod
-    async def search(
-        self, user_id: str, vector: list[float], *, top_k: int = 5
-    ) -> list[RetrievedChunk]:
-        """Return the closest chunks for this user only."""
-
-    @abstractmethod
-    async def delete_user(self, user_id: str) -> None:
-        """Remove all of a user's data (privacy requirement)."""
+    async def embed_query(self, text: str) -> list[float]: ...

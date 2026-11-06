@@ -80,6 +80,42 @@ Free-tier limits to keep in mind: `gpt-oss-120b` allows 8,000 tokens a minute (a
 answers a minute), and every partial transcript (`STT_PARTIAL_INTERVAL_MS`, 0 = off) is an
 extra Whisper request.
 
+## CV & job description (Phase 2)
+
+Open http://localhost:3000/documents to upload a CV (PDF, DOCX, TXT, MD) and paste or upload
+a job description. Each is split into sections (a role keeps its title, company and dates),
+embedded locally with fastembed, and summarised once by the LLM. On the copilot page, pick
+which CV and job description to use before pressing Start.
+
+For each question the copilot:
+
+1. classifies it as **behavioral** (STAR story), **technical** (key points, code only if
+   asked) or **general** (direct answer + points) — rules in `backend/app/answer/classify.py`;
+2. retrieves the 4 most relevant CV sections and 2 job-description sections (in memory,
+   ~5 ms);
+3. streams an answer grounded in them, showing the type and the CV roles it used.
+
+When a session has a job description, one extra LLM call at start lists the job's skills
+and duties the CV doesn't show (checked against the CV text, cached per CV/JD pair). The
+prompt tells the model never to claim them, the copilot shows them as "Not on your CV", and
+any answer that mentions one highlights it. Measure with:
+
+```bash
+python -m scripts.eval_jd_claims            # Sara's test CV vs the Lumen Pay job
+python -m scripts.eval_jd_claims --no-gaps  # same without the gap list
+```
+
+Storage: set `DATABASE_URL` to a Supabase **Session pooler** connection string and the
+tables are created at startup. Without it, documents live in memory until restart.
+
+Quality checks on the labelled question set (`backend/evals/questions.json`):
+
+```bash
+cd backend
+python -m scripts.eval_answers          # 15 questions; writes evals/report.md
+python -m scripts.eval_answers --all
+```
+
 ## Rebranding
 
 Edit `frontend/src/config/brand.ts` (name, tagline, logo, colours). Nothing else needs changing.

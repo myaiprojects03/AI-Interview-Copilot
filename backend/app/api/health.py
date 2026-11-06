@@ -1,13 +1,9 @@
-from typing import Annotated
+from fastapi import APIRouter, Request
 
-from fastapi import APIRouter, Depends
-
-from app.core.config import Settings, get_settings
+from app.core.deps import SettingsDep
 from app.providers.registry import provider_status
 
 router = APIRouter(prefix="/health", tags=["health"])
-
-SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @router.get("")
@@ -16,5 +12,9 @@ async def health(settings: SettingsDep) -> dict:
 
 
 @router.get("/providers")
-async def providers(settings: SettingsDep) -> dict:
-    return provider_status(settings)
+async def providers(settings: SettingsDep, request: Request) -> dict:
+    status = provider_status(settings)
+    store = getattr(request.app.state, "store", None)
+    status["database"]["storage"] = store.name if store else None
+    status["database"]["error"] = getattr(request.app.state, "store_error", None)
+    return status

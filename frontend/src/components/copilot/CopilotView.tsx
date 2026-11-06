@@ -12,8 +12,9 @@ import {
   type SocketStatus,
   type Timings,
 } from "@/lib/copilotSocket";
-import { SuggestionText } from "@/components/SuggestionText";
-import { initialState, reducer, type Line, type Suggestion } from "./state";
+import { SuggestionText, type Flag } from "@/components/SuggestionText";
+import { listDocuments, type DocumentSummary } from "@/lib/api";
+import { initialState, reducer, type Line, type SessionContext, type Suggestion } from "./state";
 
 type RunState = "idle" | "starting" | "live" | "paused";
 type Mode = "meeting" | "practice";
@@ -24,13 +25,38 @@ export function CopilotView() {
   const [socketStatus, setSocketStatus] = useState<SocketStatus>("closed");
   const [mode, setMode] = useState<Mode>("meeting");
   const [sessionType, setSessionType] = useState<SessionType>("mixed");
+  const [hasMic, setHasMic] = useState(true);
   const [levels, setLevels] = useState<Record<ChannelName, number>>({ interviewer: 0, candidate: 0 });
+  const [docs, setDocs] = useState<DocumentSummary[] | null>(null);
+  const [selected, setSelected] = useState<{ cv: string; jd: string }>({ cv: "", jd: "" });
 
   const socketRef = useRef<CopilotSocket | null>(null);
   const capturesRef = useRef<CaptureHandle[]>([]);
   const streamsRef = useRef<MediaStream[]>([]);
   const pausedRef = useRef(false);
   const sessionTypeRef = useRef<SessionType>(sessionType);
+  const selectedRef = useRef(selected);
+
+  useEffect(() => {
+    listDocuments()
+      .then((all) => {
+        setDocs(all);
+        // Newest first: preselect the latest CV and job description.
+        const pick = {
+          cv: all.find((d) => d.kind === "cv")?.id ?? "",
+          jd: all.find((d) => d.kind === "jd")?.id ?? "",
+        };
+        selectedRef.current = pick;
+        setSelected(pick);
+      })
+      .catch(() => setDocs([]));
+  }, []);
+
+  const choose = (kind: "cv" | "jd", id: string) => {
+    const next = { ...selectedRef.current, [kind]: id };
+    selectedRef.current = next;
+    setSelected(next);
+  };
 
   const stop = useCallback(() => {
     capturesRef.current.forEach((c) => c.stop());
@@ -52,13 +78,31 @@ export function CopilotView() {
     try {
       const tab = mode === "meeting" ? await getTabAudio() : null;
       if (tab) streamsRef.current.push(tab);
-      const mic = await getMic();
-      streamsRef.current.push(mic);
+      let mic: MediaStream | null = null;
+      try {
+        mic = await getMic();
+        streamsRef.current.push(mic);
+      } catch (err) {
+        // In meeting mode the mic is optional: the interviewer's tab audio is what matters.
+        if (!tab) throw err;
+        dispatch({
+          type: "error",
+          message: `${describeStartError(err)} Only the interviewer is being transcribed; your own answers won't appear.`,
+        });
+      }
+      setHasMic(mic !== null);
 
       const socket = new CopilotSocket({
         onEvent: (event) => dispatch({ type: "server", event }),
         onStatus: setSocketStatus,
-        onOpen: () => [{ type: "start", session_type: sessionTypeRef.current }],
+        onOpen: () => [
+          {
+            type: "start",
+            session_type: sessionTypeRef.current,
+            cv_id: selectedRef.current.cv || null,
+            jd_id: selectedRef.current.jd || null,
+          },
+        ],
       });
       socket.connect();
       socketRef.current = socket;
@@ -74,8 +118,8 @@ export function CopilotView() {
       };
       if (tab) {
         await attach(tab, "interviewer");
-        await attach(mic, "candidate");
-      } else {
+        if (mic) await attach(mic, "candidate");
+      } else if (mic) {
         await attach(mic, "interviewer"); // practice: you read the questions out loud
       }
       setRun("live");
@@ -152,6 +196,14 @@ export function CopilotView() {
         </div>
       </header>
 
+      <ContextBar
+        docs={docs}
+        selected={selected}
+        onChoose={choose}
+        disabled={run !== "idle"}
+        live={active ? state.context : null}
+      />
+
       {state.error && (
         <div
           role="alert"
@@ -169,7 +221,7 @@ export function CopilotView() {
           <div className="flex items-center gap-4 border-b border-black/10 px-4 py-2 text-sm dark:border-white/10">
             <h2 className="font-semibold">Transcript</h2>
             <Meter label="Interviewer" level={levels.interviewer} speaking={state.speaking.interviewer} />
-            {mode === "meeting" && (
+            {mode === "meeting" && hasMic && (
               <Meter label="You" level={levels.candidate} speaking={state.speaking.candidate} />
             )}
           </div>
@@ -206,6 +258,8 @@ function describeStartError(err: unknown): string {
   if (err instanceof DOMException) {
     if (err.name === "NotAllowedError") return "Permission was denied or sharing was cancelled.";
     if (err.name === "NotFoundError") return "No microphone was found.";
+    if (err.name === "NotReadableError")
+      return "The microphone is in use by another app or isn't working.";
   }
   return err instanceof Error ? err.message : String(err);
 }
@@ -247,15 +301,31 @@ function Transcript({ lines, mode }: { lines: Line[]; mode: Mode }) {
   );
 }
 
+const TYPE_LABEL = {
+  behavioral: "Behavioral · STAR",
+  technical: "Technical",
+  general: "General",
+} as const;
+
 function CurrentSuggestion({ s }: { s: Suggestion }) {
   return (
     <article className="flex flex-col gap-4" aria-live="polite">
-      <p className="text-sm text-muted">
-        <span className="font-semibold">Q:</span> {s.question}
-      </p>
+      <div className="flex flex-col gap-1.5">
+        <p className="text-sm text-muted">
+          {s.questionType && (
+            <span className="mr-2 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
+              {TYPE_LABEL[s.questionType]}
+            </span>
+          )}
+          <span className="font-semibold">Q:</span> {s.question}
+        </p>
+        {s.sources.length > 0 && (
+          <p className="text-xs text-muted">Based on: {s.sources.join(" · ")}</p>
+        )}
+      </div>
       <div className="text-xl leading-relaxed lg:text-2xl">
         {s.text ? (
-          <SuggestionText text={s.text} flagged={s.unverified} />
+          <SuggestionText text={s.text} flagged={flagsFor(s)} />
         ) : s.status === "streaming" ? (
           <span className="text-muted">Thinking…</span>
         ) : null}
@@ -268,6 +338,18 @@ function CurrentSuggestion({ s }: { s: Suggestion }) {
   );
 }
 
+function flagsFor(s: Suggestion): Flag[] {
+  return [
+    ...(s.unverified ?? []).map((text) => ({
+      text,
+      note: "Not in your CV. Check this before you say it.",
+    })),
+    ...(s.gapMentions ?? []).flatMap((g) =>
+      g.matches.map((text) => ({ text, note: `${g.skill} isn't on your CV.` })),
+    ),
+  ];
+}
+
 function TimingLine({ s }: { s: Suggestion }) {
   if (s.status === "streaming") return null;
   const t: Timings = s.timings ?? {};
@@ -278,12 +360,19 @@ function TimingLine({ s }: { s: Suggestion }) {
   if (t.llm_first_token_ms != null) parts.push(`AI first token ${t.llm_first_token_ms} ms`);
   const label = s.status === "stopped" ? "Stopped" : s.status === "error" ? "Failed" : null;
   const flagged = s.unverified?.length ?? 0;
+  const skills = s.gapMentions?.map((g) => g.skill) ?? [];
   return (
     <div className="flex flex-col gap-1 text-xs text-muted">
       {flagged > 0 && (
         <p className="text-amber-700 dark:text-amber-300">
           {flagged === 1 ? "1 highlighted figure isn't" : `${flagged} highlighted figures aren't`} in
           your CV. Check before saying it.
+        </p>
+      )}
+      {skills.length > 0 && (
+        <p className="text-amber-700 dark:text-amber-300">
+          Mentions {skills.join(", ")}, which {skills.length === 1 ? "isn't" : "aren't"} on your CV.
+          Don&apos;t claim {skills.length === 1 ? "it" : "them"} as experience.
         </p>
       )}
       <p>{[label, ...parts].filter(Boolean).join(" · ")}</p>
@@ -328,7 +417,7 @@ function Earlier({ suggestions }: { suggestions: Suggestion[] }) {
         <details key={s.key} className="rounded-lg px-2 py-1 text-sm hover:bg-black/5 dark:hover:bg-white/5">
           <summary className="cursor-pointer text-muted">{s.question}</summary>
           <div className="py-2 text-base">
-            <SuggestionText text={s.text} flagged={s.unverified} />
+            <SuggestionText text={s.text} flagged={flagsFor(s)} />
           </div>
         </details>
       ))}
@@ -346,6 +435,59 @@ function Meter({ label, level, speaking }: { label: string; level: number; speak
         <span className="block h-full bg-accent transition-[width]" style={{ width: `${pct}%` }} />
       </span>
     </span>
+  );
+}
+
+function ContextBar({
+  docs,
+  selected,
+  onChoose,
+  disabled,
+  live,
+}: {
+  docs: DocumentSummary[] | null;
+  selected: { cv: string; jd: string };
+  onChoose: (kind: "cv" | "jd", id: string) => void;
+  disabled: boolean;
+  live: SessionContext | null;
+}) {
+  const cvs = docs?.filter((d) => d.kind === "cv") ?? [];
+  const jds = docs?.filter((d) => d.kind === "jd") ?? [];
+  const usingSample = live ? live.using_sample_cv : cvs.length === 0 || !selected.cv;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-black/10 px-4 py-2 text-sm dark:border-white/10 sm:px-6">
+      <Select
+        label="CV"
+        value={selected.cv}
+        disabled={disabled || docs === null}
+        onChange={(v) => onChoose("cv", v)}
+        options={[["", "Sample CV (demo)"], ...cvs.map((d): [string, string] => [d.id, `CV: ${d.title}`])]}
+      />
+      <Select
+        label="Job description"
+        value={selected.jd}
+        disabled={disabled || docs === null}
+        onChange={(v) => onChoose("jd", v)}
+        options={[["", "No job description"], ...jds.map((d): [string, string] => [d.id, `Job: ${d.title}`])]}
+      />
+      {usingSample && (
+        <span className="text-xs text-amber-700 dark:text-amber-300">
+          Answers use a fictional sample CV until you upload yours.
+        </span>
+      )}
+      {live && live.gaps.length > 0 && (
+        <span
+          className="text-xs text-muted"
+          title="The job asks for these but your CV doesn't show them. Answers won't claim them; be ready to say how you'd learn them."
+        >
+          <span className="font-semibold text-amber-700 dark:text-amber-300">Not on your CV:</span>{" "}
+          {live.gaps.join(" · ")}
+        </span>
+      )}
+      <Link href="/documents" className="ml-auto text-xs text-primary underline">
+        Manage CVs &amp; job descriptions
+      </Link>
+    </div>
   );
 }
 

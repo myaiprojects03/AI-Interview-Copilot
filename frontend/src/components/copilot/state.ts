@@ -1,4 +1,12 @@
-import type { ChannelName, ServerEvent, Timings } from "@/lib/copilotSocket";
+import type {
+  ChannelName,
+  GapMention,
+  QuestionType,
+  ServerEvent,
+  Timings,
+} from "@/lib/copilotSocket";
+
+export type SessionContext = Extract<ServerEvent, { type: "context" }>;
 
 export type Line = {
   key: string;
@@ -11,10 +19,13 @@ export type Suggestion = {
   id: number;
   key: string;
   question: string;
+  questionType?: QuestionType;
+  sources: string[];
   text: string;
   status: "streaming" | "done" | "stopped" | "error";
   timings?: Timings;
   unverified?: string[];
+  gapMentions?: GapMention[];
 };
 
 export type CopilotState = {
@@ -23,6 +34,7 @@ export type CopilotState = {
   lines: Line[];
   suggestions: Suggestion[]; // newest first
   speaking: Record<ChannelName, boolean>;
+  context: SessionContext | null;
   error: string | null;
 };
 
@@ -31,6 +43,7 @@ export const initialState: CopilotState = {
   lines: [],
   suggestions: [],
   speaking: { interviewer: false, candidate: false },
+  context: null,
   error: null,
 };
 
@@ -50,6 +63,8 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
   switch (e.type) {
     case "ready":
       return { ...state, epoch: state.epoch + 1, error: null };
+    case "context":
+      return { ...state, context: e };
     case "speech":
       return { ...state, speaking: { ...state.speaking, [e.channel]: e.active } };
     case "transcript": {
@@ -73,6 +88,8 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
         id: e.id,
         key: `${state.epoch}-${e.id}`,
         question: e.question,
+        questionType: e.question_type,
+        sources: e.sources ?? [],
         text: "",
         status: "streaming",
       };
@@ -87,7 +104,13 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
           if (s.key !== key) return s;
           return e.type === "suggestion_delta"
             ? { ...s, text: s.text + e.text }
-            : { ...s, status: e.status, timings: e.timings, unverified: e.unverified };
+            : {
+                ...s,
+                status: e.status,
+                timings: e.timings,
+                unverified: e.unverified,
+                gapMentions: e.gap_mentions,
+              };
         }),
       };
     }

@@ -3,7 +3,7 @@
 from pydantic import SecretStr
 
 from app.core.config import Settings
-from app.providers.base import LLMProvider, ProviderError, STTProvider
+from app.providers.base import EmbeddingProvider, LLMProvider, ProviderError, STTProvider
 
 
 def _has(secret: SecretStr | None) -> bool:
@@ -47,6 +47,16 @@ def get_stt(settings: Settings) -> STTProvider:
     )
 
 
+def get_embedder(settings: Settings) -> EmbeddingProvider:
+    if settings.embedding_provider == "fake":
+        from app.providers.embeddings.fake import FakeEmbeddings
+
+        return FakeEmbeddings()
+    from app.providers.embeddings.local import LocalEmbeddings
+
+    return LocalEmbeddings(settings.embedding_model)
+
+
 def provider_status(settings: Settings) -> dict:
     """Which providers are selected and whether their keys are present. Never returns secrets."""
     groq_ready = _has(settings.groq_api_key)
@@ -61,5 +71,6 @@ def provider_status(settings: Settings) -> dict:
             "model": settings.groq_stt_model if settings.stt_provider == "groq" else None,
             "configured": settings.stt_provider == "fake" or groq_ready,
         },
+        "embeddings": {"provider": settings.embedding_provider, "configured": True},
         "database": {"configured": _has(settings.database_url)},
     }

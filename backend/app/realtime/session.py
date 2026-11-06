@@ -18,11 +18,14 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app.answer.classify import classify
+from app.answer.gaps import mentioned_gaps
+from app.answer.prompts import SAMPLE_CV, SessionType, build_messages
+from app.answer.retrieval import InterviewContext, retrieve
 from app.core.config import Settings
-from app.providers.base import LLMProvider, ProviderError, STTProvider
+from app.providers.base import EmbeddingProvider, LLMProvider, ProviderError, STTProvider
 from app.realtime.audio import pcm_to_wav
 from app.realtime.factcheck import unverified_figures
-from app.realtime.prompts import SAMPLE_CV, SessionType, build_messages
 from app.realtime.questions import is_noise, is_question, normalize
 from app.realtime.vad import (
     PartialAudio,
@@ -79,13 +82,15 @@ class CopilotSession:
         llm: LLMProvider,
         settings: Settings,
         emit: Emit,
-        cv_text: str = SAMPLE_CV,
+        embedder: EmbeddingProvider | None = None,
+        context: InterviewContext | None = None,
     ):
         self._stt = stt
         self._llm = llm
         self._settings = settings
         self._emit = emit
-        self._cv_text = cv_text
+        self._embedder = embedder
+        self.context = context or InterviewContext(sample_cv_text=SAMPLE_CV)
         self.session_type: SessionType = "mixed"
         partial_ms = settings.stt_partial_interval_ms or None
         self._channels = {
@@ -269,11 +274,30 @@ class CopilotSession:
 
     async def _run_answer(self, answer_id: int, question: str, timings: dict) -> None:
         speech_end = timings.pop("_speech_end", None)
-        self._emit({"type": "suggestion_start", "id": answer_id, "question": question})
+        kind = classify(question, self.session_type)
+        t_retrieve = time.monotonic()
+        excerpts = []
+        if self._embedder is not None:
+            try:
+                excerpts = await retrieve(self.context, self._embedder, question)
+            except Exception:  # noqa: BLE001 - answer without excerpts rather than not at all
+                log.exception("retrieval failed")
+        timings["retrieval_ms"] = round((time.monotonic() - t_retrieve) * 1000)
+        sources = list(dict.fromkeys(s.label for s in excerpts if s.chunk.kind == "cv"))[:3]
+        self._emit(
+            {
+                "type": "suggestion_start",
+                "id": answer_id,
+                "question": question,
+                "question_type": kind.type,
+                "sources": sources,
+            }
+        )
         messages = build_messages(
             question,
-            cv_text=self._cv_text,
-            session_type=self.session_type,
+            kind=kind,
+            context=self.context,
+            excerpts=excerpts,
             recent_transcript=list(self._transcript)[:-1],
         )
         t0 = time.monotonic()
@@ -306,6 +330,11 @@ class CopilotSession:
                     "id": answer_id,
                     "status": status,
                     "timings": timings,
-                    "unverified": unverified_figures(text, self._cv_text),
+                    # Figures the interviewer said ("in five years") are fine to repeat.
+                    "unverified": unverified_figures(
+                        text, self.context.fact_text + "\n" + question
+                    ),
+                    # Job skills the CV doesn't show, mentioned in this answer.
+                    "gap_mentions": mentioned_gaps(text, self.context.gaps, question),
                 }
             )
