@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from app.db import create_pool, retry_on_disconnect
+
 DocKind = Literal["cv", "jd"]
 
 SCHEMA_SQL = (Path(__file__).with_name("schema.sql")).read_text(encoding="utf-8")
@@ -90,6 +92,15 @@ class DocumentStore(ABC):
         return None
 
 
+def _as_floats(value) -> list[float]:
+    """pgvector returns a Vector (newer versions) or a numpy array (older ones)."""
+    if hasattr(value, "to_list"):
+        value = value.to_list()
+    elif hasattr(value, "tolist"):
+        value = value.tolist()
+    return [float(x) for x in value]
+
+
 def _valid_uuid(value: str) -> bool:
     try:
         uuid.UUID(value)
@@ -155,11 +166,17 @@ class MemoryStore(DocumentStore):
             return True
 
 
+@retry_on_disconnect
 class PostgresStore(DocumentStore):
     name = "postgres"
 
     def __init__(self, pool) -> None:
         self._pool = pool
+
+    @property
+    def pool(self):
+        """Shared with the account store so the app keeps one connection pool."""
+        return self._pool
 
     @classmethod
     async def connect(cls, dsn: str) -> "PostgresStore":
@@ -172,9 +189,7 @@ class PostgresStore(DocumentStore):
             await conn.execute(SCHEMA_SQL)
         finally:
             await conn.close()
-        pool = await asyncpg.create_pool(
-            dsn, min_size=1, max_size=5, statement_cache_size=0, init=register_vector
-        )
+        pool = await create_pool(dsn, init=register_vector)
         return cls(pool)
 
     async def close(self) -> None:
@@ -263,7 +278,7 @@ class PostgresStore(DocumentStore):
                 kind=r["kind"],
                 position=r["position"],
                 content=r["content"],
-                embedding=[float(x) for x in r["embedding"]],
+                embedding=_as_floats(r["embedding"]),
                 metadata=json.loads(r["metadata"]) if isinstance(r["metadata"], str)
                 else dict(r["metadata"]),
             )

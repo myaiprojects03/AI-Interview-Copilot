@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { brand, brandCssVariables } from "@/config/brand";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,7 +29,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <style dangerouslySetInnerHTML={{ __html: brandCssVariables() }} />
       </head>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      <body className="min-h-full flex flex-col font-sans">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

@@ -84,11 +84,14 @@ class CopilotSession:
         emit: Emit,
         embedder: EmbeddingProvider | None = None,
         context: InterviewContext | None = None,
+        record: Emit | None = None,
     ):
         self._stt = stt
         self._llm = llm
         self._settings = settings
         self._emit = emit
+        # Called with {"kind": "turn", ...} / {"kind": "answer", ...} for interview history.
+        self._record = record or (lambda _item: None)
         self._embedder = embedder
         self.context = context or InterviewContext(sample_cv_text=SAMPLE_CV)
         self.session_type: SessionType = "mixed"
@@ -234,6 +237,7 @@ class CopilotSession:
                     "stt_ms": stt_ms,
                 }
             )
+            self._record({"kind": "turn", "speaker": ch.name, "text": text})
             if ch.id == INTERVIEWER:
                 self._on_interviewer_final(text, job.speech_end, stt_ms)
             else:
@@ -338,3 +342,8 @@ class CopilotSession:
                     "gap_mentions": mentioned_gaps(text, self.context.gaps, question),
                 }
             )
+            if text.strip():
+                self._record(
+                    {"kind": "answer", "question": question, "question_type": kind.type,
+                     "answer": text, "status": status}
+                )

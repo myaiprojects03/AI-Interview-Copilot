@@ -53,7 +53,13 @@ export type ServerEvent =
       /** Job skills the CV doesn't show that the answer mentions. */
       gap_mentions: GapMention[];
     }
-  | { type: "error"; message: string; retryable?: boolean };
+  | { type: "usage"; plan: string; limit_seconds: number; remaining_seconds: number }
+  | { type: "limit_reached"; plan: string; message: string }
+  | { type: "error"; message: string; retryable?: boolean; code?: "auth" };
+
+/** Server close codes after which reconnecting is pointless. */
+const CLOSE_AUTH = 4401;
+const CLOSE_LIMIT = 4402;
 
 export type ControlMessage =
   | {
@@ -78,6 +84,7 @@ export class CopilotSocket {
   private ws: WebSocket | null = null;
   private attempt = 0;
   private closedByUser = false;
+  private authed = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -86,17 +93,24 @@ export class CopilotSocket {
       onStatus: (status: SocketStatus) => void;
       /** Sent again after every (re)connect, e.g. the session type. */
       onOpen: () => ControlMessage[];
+      /** The sign-in token, sent as the first message (browsers can't set WS headers). */
+      getToken: () => Promise<string | null>;
     },
     private readonly url = API_URL.replace(/^http/, "ws") + "/ws/session",
   ) {}
 
   connect() {
     this.closedByUser = false;
+    this.authed = false;
     this.handlers.onStatus(this.attempt === 0 ? "connecting" : "reconnecting");
     const ws = new WebSocket(this.url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
-    ws.onopen = () => {
+    ws.onopen = async () => {
+      const token = await this.handlers.getToken();
+      if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "auth", token }));
+      this.authed = true;
       this.attempt = 0;
       this.handlers.onStatus("open");
       for (const msg of this.handlers.onOpen()) this.send(msg);
@@ -104,10 +118,11 @@ export class CopilotSocket {
     ws.onmessage = (e) => {
       if (typeof e.data === "string") this.handlers.onEvent(JSON.parse(e.data) as ServerEvent);
     };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (this.ws !== ws) return;
       this.ws = null;
-      if (this.closedByUser) {
+      this.authed = false;
+      if (this.closedByUser || e.code === CLOSE_AUTH || e.code === CLOSE_LIMIT) {
         this.handlers.onStatus("closed");
         return;
       }
@@ -124,8 +139,9 @@ export class CopilotSocket {
     };
   }
 
+  /** Open and signed in: audio and controls can be sent. */
   get isOpen() {
-    return this.ws?.readyState === WebSocket.OPEN;
+    return this.authed && this.ws?.readyState === WebSocket.OPEN;
   }
 
   sendAudio(channel: ChannelName, pcm: ArrayBuffer) {

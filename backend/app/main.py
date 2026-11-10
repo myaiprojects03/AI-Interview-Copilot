@@ -5,7 +5,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import documents, health, realtime
+from app.accounts.store import MemoryAccountStore, PostgresAccountStore
+from app.api import billing, documents, health, history, realtime
+from app.api.billing import make_billing
+from app.core.auth import TokenVerifier
 from app.core.config import Settings, get_settings
 from app.documents.store import DocumentStore, MemoryStore, PostgresStore
 from app.providers.embeddings.local import LocalEmbeddings
@@ -31,6 +34,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.store, app.state.store_error = await _open_store(settings)
+        app.state.accounts = (
+            PostgresAccountStore(app.state.store.pool)
+            if isinstance(app.state.store, PostgresStore)
+            else MemoryAccountStore()
+        )
+        app.state.verifier = TokenVerifier(settings)
+        app.state.billing = make_billing(settings)
+        if not settings.auth_enabled:
+            log.warning("Sign-in is not configured: every request acts as %s", settings.dev_user_id)
         app.state.embedder = get_embedder(settings)
         warm = None
         if isinstance(app.state.embedder, LocalEmbeddings):
@@ -52,6 +64,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(documents.router)
+    app.include_router(billing.router)
+    app.include_router(history.router)
     app.include_router(realtime.router)
     return app
 

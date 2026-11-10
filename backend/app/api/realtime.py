@@ -1,6 +1,7 @@
 """WebSocket for a live copilot session.
 
 Client -> server
+  first:  {"type": "auth", "token": "<Supabase access token>"} (when sign-in is enabled)
   binary: 1 byte channel (0 = interviewer / tab audio, 1 = candidate / mic)
           + 16 kHz mono PCM16 little-endian audio
   text:   {"type": "start", "session_type": "mixed" | "behavioral" | "technical",
@@ -10,8 +11,9 @@ Client -> server
           {"type": "stop_answer"}
 
 Server -> client (JSON)
-  ready, speech, transcript, transcript_discard, suggestion_start, suggestion_delta,
-  suggestion_end, error. See app/realtime/session.py.
+  ready, usage, context, speech, transcript, transcript_discard, suggestion_start,
+  suggestion_delta, suggestion_end, limit_reached, error. See app/realtime/session.py.
+  Close codes: 4401 not signed in, 4402 monthly minutes used up (don't reconnect).
 """
 
 import asyncio
@@ -21,13 +23,17 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.accounts.store import AccountStore
 from app.answer.gaps import find_gaps
 from app.answer.prompts import SAMPLE_CV
 from app.answer.retrieval import load_context
-from app.core.deps import EmbedderDep, SettingsDep, StoreDep, UserDep
+from app.billing.plans import PLANS, month_key
+from app.billing.service import quota
+from app.core.auth import AuthError, User
+from app.core.deps import EmbedderDep, SettingsDep, StoreDep, VerifierDep, authenticate
 from app.providers.base import LLMProvider, ProviderError
 from app.providers.registry import get_llm, get_stt
-from app.realtime.session import CopilotSession
+from app.realtime.session import INTERVIEWER, CopilotSession
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -67,11 +73,60 @@ async def _apply_documents(
     session.context = context
 
 
+AUTH_TIMEOUT_S = 10.0
+METER_FLUSH_S = 15.0  # write usage to the database every 15 s of live audio
+BYTES_PER_SECOND = 16000 * 2  # 16 kHz, 16-bit mono
+CLOSE_AUTH = 4401
+CLOSE_LIMIT = 4402
+
+
+def _limit_message(plan: str) -> str:
+    name = PLANS[plan].name
+    return (
+        f"You've used all your {PLANS[plan].minutes} interview minutes on the {name} plan this "
+        "month. Upgrade to keep going."
+    )
+
+
+async def _who(ws: WebSocket, settings, verifier) -> User:
+    """Browsers can't set headers on a WebSocket, so the token is the first message:
+    {"type": "auth", "token": "..."}"""
+    if not settings.auth_enabled:
+        return await authenticate(None, settings, verifier)
+    try:
+        first = json.loads(await asyncio.wait_for(ws.receive_text(), AUTH_TIMEOUT_S))
+    except (TimeoutError, json.JSONDecodeError, KeyError, WebSocketDisconnect) as exc:
+        raise AuthError("Sign in to continue.") from exc
+    if not isinstance(first, dict) or first.get("type") != "auth":
+        raise AuthError("Sign in to continue.")
+    return await authenticate(first.get("token"), settings, verifier)
+
+
 @router.websocket("/ws/session")
 async def session_socket(
-    ws: WebSocket, settings: SettingsDep, store: StoreDep, embedder: EmbedderDep, user_id: UserDep
+    ws: WebSocket,
+    settings: SettingsDep,
+    store: StoreDep,
+    embedder: EmbedderDep,
+    verifier: VerifierDep,
 ) -> None:
+    accounts: AccountStore = ws.app.state.accounts
     await ws.accept()
+    try:
+        user = await _who(ws, settings, verifier)
+    except AuthError as exc:
+        await ws.send_json({"type": "error", "code": "auth", "message": str(exc),
+                            "retryable": False})
+        await ws.close(code=CLOSE_AUTH)
+        return
+
+    usage = await quota(accounts, user.id)
+    if usage["remaining_seconds"] <= 0:
+        await ws.send_json({"type": "limit_reached", "plan": usage["plan"],
+                            "message": _limit_message(usage["plan"])})
+        await ws.close(code=CLOSE_LIMIT)
+        return
+
     try:
         stt = get_stt(settings)
         llm = get_llm(settings)
@@ -80,9 +135,51 @@ async def session_socket(
         await ws.close(code=1011)
         return
 
+    # ---- interview history: written in the background so audio is never blocked ----
+    history_id: str | None = None
+    writes: asyncio.Queue[dict] = asyncio.Queue()
+
+    async def write(item: dict) -> None:
+        try:
+            if item["kind"] == "turn":
+                await accounts.add_turn(user.id, history_id, item["speaker"], item["text"])
+            else:
+                await accounts.add_answer(
+                    user.id, history_id, question=item["question"],
+                    question_type=item["question_type"], answer=item["answer"],
+                    status=item["status"],
+                )
+        except Exception:  # noqa: BLE001 - history must never break the live session
+            log.exception("saving interview history failed")
+
+    async def writer() -> None:
+        while True:
+            await write(await writes.get())
+
+    def record(item: dict) -> None:
+        if history_id:
+            writes.put_nowait(item)
+
+    # ---- usage metering: live interviewer audio counts, paused time doesn't ----
+    limit = usage["limit_seconds"]
+    used_at_start = usage["used_seconds"]
+    metered = 0.0
+    unflushed = 0.0
+
+    async def flush() -> float:
+        nonlocal unflushed
+        seconds, unflushed = unflushed, 0.0
+        used = await accounts.add_usage(user.id, month_key(), seconds) if seconds else (
+            used_at_start + metered
+        )
+        outbound.put_nowait({"type": "usage", "plan": usage["plan"], "limit_seconds": limit,
+                             "remaining_seconds": max(0.0, limit - used)})
+        return used
+
     outbound: asyncio.Queue[dict] = asyncio.Queue()
     session = CopilotSession(
-        stt=stt, llm=llm, settings=settings, emit=outbound.put_nowait, embedder=embedder
+        stt=stt, llm=llm, settings=settings, emit=outbound.put_nowait, embedder=embedder,
+        record=record,
     )
 
     async def sender() -> None:
@@ -90,8 +187,11 @@ async def session_socket(
             await ws.send_json(await outbound.get())
 
     send_task = asyncio.create_task(sender())
+    write_task = asyncio.create_task(writer())
     await session.start()
     outbound.put_nowait({"type": "ready"})
+    outbound.put_nowait({"type": "usage", "plan": usage["plan"], "limit_seconds": limit,
+                         "remaining_seconds": usage["remaining_seconds"]})
     try:
         while True:
             message = await ws.receive()
@@ -99,8 +199,21 @@ async def session_socket(
                 break
             data = message.get("bytes")
             if data is not None:
-                if 1 < len(data) <= MAX_AUDIO_FRAME_BYTES:
-                    session.on_audio(data[0], data[1:])
+                if not 1 < len(data) <= MAX_AUDIO_FRAME_BYTES:
+                    continue
+                session.on_audio(data[0], data[1:])
+                if data[0] == INTERVIEWER:
+                    seconds = (len(data) - 1) / BYTES_PER_SECOND
+                    metered += seconds
+                    unflushed += seconds
+                    over = used_at_start + metered >= limit
+                    if unflushed >= METER_FLUSH_S or over:
+                        if await flush() >= limit:
+                            outbound.put_nowait({"type": "limit_reached", "plan": usage["plan"],
+                                                 "message": _limit_message(usage["plan"])})
+                            await asyncio.sleep(0.2)  # let the sender deliver it
+                            await ws.close(code=CLOSE_LIMIT)
+                            break
                 continue
             text = message.get("text")
             if text:
@@ -112,18 +225,34 @@ async def session_socket(
                     continue
                 if msg.get("type") == "start":
                     try:
-                        await _apply_documents(session, msg, store, user_id, llm)
+                        await _apply_documents(session, msg, store, user.id, llm)
                     except Exception:  # noqa: BLE001 - keep the session alive on the sample CV
                         log.exception("loading documents failed")
                         outbound.put_nowait(
                             {"type": "error", "message": "Couldn't load your CV; using the sample."}
                         )
                     outbound.put_nowait({"type": "context", **session.context.public()})
+                    if history_id is None:
+                        ctx = session.context
+                        history_id = await accounts.create_session(
+                            user.id,
+                            cv_title=ctx.cv.title if ctx.cv else "Sample CV",
+                            jd_title=ctx.jd.title if ctx.jd else None,
+                        )
                 session.on_control(msg)
     except WebSocketDisconnect:
         pass
     finally:
         await session.close()
-        send_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await send_task
+        with contextlib.suppress(Exception):
+            if unflushed:
+                await accounts.add_usage(user.id, month_key(), unflushed)
+            if history_id:
+                write_task.cancel()
+                while not writes.empty():
+                    await write(writes.get_nowait())
+                await accounts.finish_session(user.id, history_id, metered)
+        for task in (send_task, write_task):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task

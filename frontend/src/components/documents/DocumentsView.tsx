@@ -1,9 +1,8 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { brand } from "@/config/brand";
+import { AppHeader } from "@/components/AppHeader";
+import { RequireAuth } from "@/components/auth/AuthProvider";
 import {
   deleteDocument,
   getDocument,
@@ -15,6 +14,14 @@ import {
 } from "@/lib/api";
 
 export function DocumentsView() {
+  return (
+    <RequireAuth>
+      <Documents />
+    </RequireAuth>
+  );
+}
+
+function Documents() {
   const [docs, setDocs] = useState<DocumentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [storage, setStorage] = useState<string | null>(null);
@@ -47,19 +54,7 @@ export function DocumentsView() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-black/10 px-4 py-3 dark:border-white/10 sm:px-6">
-        <Link href="/" className="flex items-center gap-2 font-semibold">
-          <Image src={brand.logo} alt="" width={28} height={28} />
-          <span className="hidden sm:inline">{brand.name}</span>
-        </Link>
-        <span className="text-sm text-muted">Your CVs and job descriptions</span>
-        <Link
-          href="/copilot"
-          className="ml-auto rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Open live copilot
-        </Link>
-      </header>
+      <AppHeader />
 
       {storage === "memory" && (
         <p className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300 sm:px-6">

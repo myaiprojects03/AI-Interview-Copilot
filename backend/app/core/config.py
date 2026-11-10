@@ -49,8 +49,26 @@ class Settings(BaseSettings):
     embedding_provider: Literal["local", "fake"] = "local"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
 
-    # Until sign-in arrives (Phase 3) every request acts as this one user.
+    # Sign-in (Supabase Auth). When neither is set and environment is development/test,
+    # every request acts as `dev_user_id` so the app runs locally without accounts.
+    supabase_url: str | None = None  # tokens are checked against this project's public keys
+    supabase_jwt_secret: SecretStr | None = None  # only for projects on legacy HS256 secrets
     dev_user_id: str = "local-dev"
+
+    # Billing. "fake" simulates subscribe / upgrade / cancel instantly (dev and tests);
+    # "paddle" uses Paddle Billing (sandbox or live).
+    billing_provider: Literal["paddle", "fake"] = "fake"
+    paddle_api_key: SecretStr | None = None
+    paddle_environment: Literal["sandbox", "production"] = "sandbox"
+    paddle_webhook_secret: SecretStr | None = None
+    paddle_price_starter: str | None = None
+    paddle_price_pro: str | None = None
+    app_url: str = "http://localhost:3000"  # where billing redirects users back to
+
+    @property
+    def auth_enabled(self) -> bool:
+        secret = self.supabase_jwt_secret
+        return bool(self.supabase_url) or bool(secret and secret.get_secret_value())
 
     request_timeout_seconds: float = 30.0
 

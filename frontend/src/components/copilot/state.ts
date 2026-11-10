@@ -35,6 +35,9 @@ export type CopilotState = {
   suggestions: Suggestion[]; // newest first
   speaking: Record<ChannelName, boolean>;
   context: SessionContext | null;
+  usage: { remainingSeconds: number; limitSeconds: number; plan: string } | null;
+  /** Set when the month's minutes ran out; the session has ended. */
+  limitReached: string | null;
   error: string | null;
 };
 
@@ -44,6 +47,8 @@ export const initialState: CopilotState = {
   suggestions: [],
   speaking: { interviewer: false, candidate: false },
   context: null,
+  usage: null,
+  limitReached: null,
   error: null,
 };
 
@@ -61,6 +66,13 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
 
   const e = action.event;
   switch (e.type) {
+    case "usage":
+      return {
+        ...state,
+        usage: { remainingSeconds: e.remaining_seconds, limitSeconds: e.limit_seconds, plan: e.plan },
+      };
+    case "limit_reached":
+      return { ...state, limitReached: e.message };
     case "ready":
       return { ...state, epoch: state.epoch + 1, error: null };
     case "context":

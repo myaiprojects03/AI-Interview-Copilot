@@ -1,9 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { brand } from "@/config/brand";
 import { captureStream, getMic, getTabAudio, stopStream, type CaptureHandle } from "@/lib/audio";
 import {
   CopilotSocket,
@@ -12,7 +10,10 @@ import {
   type SocketStatus,
   type Timings,
 } from "@/lib/copilotSocket";
+import { AppHeader } from "@/components/AppHeader";
+import { RequireAuth } from "@/components/auth/AuthProvider";
 import { SuggestionText, type Flag } from "@/components/SuggestionText";
+import { accessToken } from "@/lib/supabase";
 import { listDocuments, type DocumentSummary } from "@/lib/api";
 import { initialState, reducer, type Line, type SessionContext, type Suggestion } from "./state";
 
@@ -20,6 +21,14 @@ type RunState = "idle" | "starting" | "live" | "paused";
 type Mode = "meeting" | "practice";
 
 export function CopilotView() {
+  return (
+    <RequireAuth>
+      <Copilot />
+    </RequireAuth>
+  );
+}
+
+function Copilot() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [run, setRun] = useState<RunState>("idle");
   const [socketStatus, setSocketStatus] = useState<SocketStatus>("closed");
@@ -72,9 +81,10 @@ export function CopilotView() {
 
   useEffect(() => stop, [stop]);
 
+
   const start = async () => {
     setRun("starting");
-    dispatch({ type: "error", message: null });
+    dispatch({ type: "reset" });
     try {
       const tab = mode === "meeting" ? await getTabAudio() : null;
       if (tab) streamsRef.current.push(tab);
@@ -93,8 +103,13 @@ export function CopilotView() {
       setHasMic(mic !== null);
 
       const socket = new CopilotSocket({
-        onEvent: (event) => dispatch({ type: "server", event }),
+        onEvent: (event) => {
+          dispatch({ type: "server", event });
+          // The server ends the session when the month's minutes run out.
+          if (event.type === "limit_reached") stop();
+        },
         onStatus: setSocketStatus,
+        getToken: accessToken,
         onOpen: () => [
           {
             type: "start",
@@ -152,12 +167,10 @@ export function CopilotView() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-black/10 px-4 py-3 dark:border-white/10 sm:px-6">
-        <Link href="/" className="flex items-center gap-2 font-semibold">
-          <Image src={brand.logo} alt="" width={28} height={28} />
-          <span className="hidden sm:inline">{brand.name}</span>
-        </Link>
+      <AppHeader />
+      <div className="flex flex-wrap items-center gap-3 border-b border-black/10 px-4 py-2 dark:border-white/10 sm:px-6">
         <StatusPill run={run} socket={socketStatus} />
+        {state.usage && <MinutesLeft seconds={state.usage.remainingSeconds} />}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Select
             label="Source"
@@ -194,7 +207,7 @@ export function CopilotView() {
             </button>
           )}
         </div>
-      </header>
+      </div>
 
       <ContextBar
         docs={docs}
@@ -203,6 +216,18 @@ export function CopilotView() {
         disabled={run !== "idle"}
         live={active ? state.context : null}
       />
+
+      {state.limitReached && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-300 sm:px-6"
+        >
+          <span>{state.limitReached}</span>
+          <Link href="/pricing" className="rounded-md bg-primary px-3 py-1 font-medium text-primary-foreground">
+            See plans
+          </Link>
+        </div>
+      )}
 
       {state.error && (
         <div
@@ -488,6 +513,21 @@ function ContextBar({
         Manage CVs &amp; job descriptions
       </Link>
     </div>
+  );
+}
+
+function MinutesLeft({ seconds }: { seconds: number }) {
+  const minutes = Math.floor(seconds / 60);
+  const low = seconds < 5 * 60;
+  return (
+    <span
+      className={`rounded-full border px-3 py-1 text-xs ${
+        low ? "border-amber-500/40 text-amber-700 dark:text-amber-300" : "border-black/10 text-muted dark:border-white/10"
+      }`}
+      title="Live interview minutes left this month"
+    >
+      {minutes < 1 ? "Under 1 min left" : `${minutes} min left`}
+    </span>
   );
 }
 

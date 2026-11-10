@@ -23,8 +23,15 @@ def receive_until(ws, kind: str, limit: int = 200) -> list[dict]:
     raise AssertionError(f"no {kind!r} in {events}")
 
 
-def ask(ws, start: dict) -> list[dict]:
+def ready(ws) -> dict:
     assert ws.receive_json() == {"type": "ready"}
+    usage = ws.receive_json()
+    assert usage["type"] == "usage"
+    return usage
+
+
+def ask(ws, start: dict) -> list[dict]:
+    ready(ws)
     ws.send_text(json.dumps(start))
     for c in chunks(tone(1000) + silence(1000)):
         ws.send_bytes(bytes([INTERVIEWER]) + c)
@@ -33,7 +40,7 @@ def ask(ws, start: dict) -> list[dict]:
 
 def test_websocket_end_to_end_with_fake_providers(client):
     with client.websocket_connect("/ws/session") as ws:
-        assert ws.receive_json() == {"type": "ready"}
+        assert ready(ws)["remaining_seconds"] == 30 * 60  # free plan
         ws.send_text(json.dumps({"type": "start", "session_type": "behavioral"}))
         ws.send_bytes(b"x")  # too short, ignored
         ws.send_text("not json")  # ignored

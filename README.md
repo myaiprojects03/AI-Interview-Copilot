@@ -116,6 +116,24 @@ python -m scripts.eval_answers          # 15 questions; writes evals/report.md
 python -m scripts.eval_answers --all
 ```
 
+## Accounts, plans and history (Phase 3)
+
+- **Sign-in:** Supabase Auth (email + password, Google). Set `SUPABASE_URL` (backend) and
+  `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` (frontend). Every API call
+  sends the access token; the WebSocket sends it as its first message. Without these
+  settings, local development runs as a single dev user.
+- **Plans:** Free 30 min, Starter $9 / 120 min, Pro $19 / 600 min of live interview time a
+  month (`backend/app/billing/plans.py`). Only live interviewer audio counts; pausing
+  doesn't. The server checks the limit when a session starts and stops it when minutes
+  run out.
+- **Billing:** Paddle Billing (`BILLING_PROVIDER=paddle`) or simulated (`fake`, the
+  default for development). Create the Paddle plans with
+  `python -m scripts.paddle_setup`. After checkout the browser asks the backend to sync
+  the subscription, so it works on localhost; in production Paddle webhooks
+  (`POST /billing/webhook`, signature checked) keep plans in step.
+- **Dashboard:** plan and usage, change / cancel / undo cancel, Paddle billing portal,
+  interview history with transcripts and suggested answers, and "Delete all my data".
+
 ## Rebranding
 
 Edit `frontend/src/config/brand.ts` (name, tagline, logo, colours). Nothing else needs changing.
