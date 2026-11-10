@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.accounts.store import MemoryAccountStore, PostgresAccountStore
-from app.api import billing, documents, health, history, realtime
+from app.api import admin, billing, documents, health, history, realtime
 from app.api.billing import make_billing
 from app.core.auth import TokenVerifier
 from app.core.config import Settings, get_settings
@@ -66,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents.router)
     app.include_router(billing.router)
     app.include_router(history.router)
+    app.include_router(admin.router)
     app.include_router(realtime.router)
     return app
 

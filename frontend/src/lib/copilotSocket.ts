@@ -55,6 +55,8 @@ export type ServerEvent =
     }
   | { type: "usage"; plan: string; limit_seconds: number; remaining_seconds: number }
   | { type: "limit_reached"; plan: string; message: string }
+  /** The interview this connection saves to; sent back after a reconnect to continue it. */
+  | { type: "history"; id: string }
   | { type: "error"; message: string; retryable?: boolean; code?: "auth" };
 
 /** Server close codes after which reconnecting is pointless. */
@@ -68,6 +70,8 @@ export type ControlMessage =
       /** A document id, or null for none (the sample CV is used when there's no CV). */
       cv_id: string | null;
       jd_id: string | null;
+      /** Continue this interview after a reconnect (from the server's "history" event). */
+      history_id?: string | null;
     }
   | { type: "set_session_type"; session_type: SessionType }
   | { type: "pause" }

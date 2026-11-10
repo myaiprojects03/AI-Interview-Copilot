@@ -102,3 +102,65 @@ def test_delete_all_my_data(auth_client):
     assert auth_client.get("/documents", headers=h).json() == []
     assert auth_client.get("/sessions", headers=h).json() == []
     assert auth_client.get("/billing/me", headers=h).json()["plan"] == "starter"  # billing kept
+
+
+def test_admin_latency_view(auth_client, auth_settings):
+    with auth_client.websocket_connect("/ws/session") as ws:
+        open_session(ws)
+        run_question(ws)
+
+    # Not an admin yet.
+    assert auth_client.get("/admin/latency", headers=auth()).status_code == 403
+
+    auth_settings.admin_emails = "Someone@else.com, u1@example.com"
+    r = auth_client.get("/admin/latency?days=7", headers=auth())
+    assert r.status_code == 200
+    data = r.json()
+    assert data["answers"] == 1 and data["statuses"] == {"done": 1}
+    m = {x["key"]: x["summary"] for x in data["metrics"]}
+    assert m["speech_end_to_first_token_ms"]["count"] == 1
+    assert m["stt_ms"]["p50"] >= 0
+    assert data["daily"][0]["count"] == 1
+    recent = data["recent"][0]
+    assert recent["question_type"] == "general"
+    assert "question" not in recent and "answer" not in recent  # no user content
+
+    # Saved timings come back with the interview too.
+    sid = auth_client.get("/sessions", headers=auth()).json()[0]["id"]
+    detail = auth_client.get(f"/sessions/{sid}", headers=auth()).json()
+    assert "llm_first_token_ms" in detail["answers"][0]["timings"]
+
+
+def test_reconnect_continues_the_same_interview(auth_client):
+    with auth_client.websocket_connect("/ws/session") as ws:
+        open_session(ws)
+        events = run_question(ws)
+    history_id = next(e["id"] for e in events if e["type"] == "history")
+
+    # The browser reconnects and asks to continue that interview.
+    with auth_client.websocket_connect("/ws/session") as ws:
+        open_session(ws)
+        ws.send_text(json.dumps({"type": "start", "history_id": history_id}))
+        for c in chunks(tone(1000) + silence(1000)):
+            ws.send_bytes(bytes([INTERVIEWER]) + c)
+        while True:
+            e = ws.receive_json()
+            if e["type"] == "history":
+                assert e["id"] == history_id
+            if e["type"] == "suggestion_end":
+                break
+
+    sessions = auth_client.get("/sessions", headers=auth()).json()
+    assert len(sessions) == 1
+    assert sessions[0]["seconds"] == 4  # 2 s + 2 s, added up across connections
+    assert sessions[0]["question_count"] == 2
+
+    # Someone else can't attach to it.
+    with auth_client.websocket_connect("/ws/session") as ws:
+        open_session(ws, user="bob")
+        ws.send_text(json.dumps({"type": "start", "history_id": history_id}))
+        while True:
+            e = ws.receive_json()
+            if e["type"] == "history":
+                assert e["id"] != history_id
+                break

@@ -1,0 +1,49 @@
+# Render Blueprint: Dashboard > New > Blueprint > pick this repo.
+# Values marked `sync: false` are secrets: Render asks for them when the Blueprint is created
+# (or set them later under the service's Environment tab). Never commit them.
+services:
+  - type: web
+    name: ai-interview-copilot-api
+    runtime: docker
+    plan: free
+    region: singapore  # closest Render region to the Supabase database (Tokyo, ap-northeast-1)
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LLM_PROVIDER
+        value: groq
+      - key: STT_PROVIDER
+        value: groq
+      - key: EMBEDDING_PROVIDER
+        value: local
+      - key: BILLING_PROVIDER
+        value: paddle
+      - key: PADDLE_ENVIRONMENT
+        value: sandbox
+      # ---- secrets / per-deployment values (entered in the Render dashboard) ----
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: PADDLE_API_KEY
+        sync: false
+      - key: PADDLE_PRICE_STARTER
+        sync: false
+      - key: PADDLE_PRICE_PRO
+        sync: false
+      - key: PADDLE_WEBHOOK_SECRET
+        sync: false
+      # JSON list with the Vercel URL, e.g. ["https://ai-interview-copilot.vercel.app"]
+      - key: CORS_ORIGINS
+        sync: false
+      # The Vercel URL, e.g. https://ai-interview-copilot.vercel.app
+      - key: APP_URL
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false

@@ -52,7 +52,8 @@ def test_websocket_end_to_end_with_fake_providers(client):
     assert events[0] == {
         "type": "context", "cv": None, "jd": None, "using_sample_cv": True, "gaps": []
     }
-    assert events[1]["type"] == "speech" and events[1]["active"] is True
+    assert events[1]["type"] == "history" and events[1]["id"]
+    assert events[2]["type"] == "speech" and events[2]["active"] is True
     assert "transcript" in types
     start = next(e for e in events if e["type"] == "suggestion_start")
     assert start["question_type"] == "general"  # fake STT says "Tell me about yourself."

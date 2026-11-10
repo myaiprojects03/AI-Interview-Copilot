@@ -5,6 +5,7 @@ MemoryAccountStore for tests / local dev; PostgresAccountStore shares the docume
 """
 
 import asyncio
+import json
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
@@ -56,6 +57,16 @@ class Answer:
     answer: str
     status: str
     created_at: datetime
+    timings: dict | None = None
+
+
+@dataclass(frozen=True)
+class AnswerTiming:
+    """One answer's latency, for the admin view (no user content)."""
+    created_at: datetime
+    question_type: str | None
+    status: str
+    timings: dict
 
 
 class AccountStore(ABC):
@@ -86,11 +97,17 @@ class AccountStore(ABC):
     @abstractmethod
     async def add_answer(
         self, user_id: str, session_id: str, *, question: str, question_type: str | None,
-        answer: str, status: str,
+        answer: str, status: str, timings: dict | None = None,
     ) -> None: ...
 
     @abstractmethod
-    async def finish_session(self, user_id: str, session_id: str, audio_seconds: float) -> None: ...
+    async def answer_timings(self, since: datetime) -> list[AnswerTiming]:
+        """Latency of every answer since `since`, across all users (admin only)."""
+
+    @abstractmethod
+    async def finish_session(self, user_id: str, session_id: str, audio_seconds: float) -> None:
+        """Mark the session ended and ADD audio_seconds to its total (a session can span
+        several connections when the browser reconnects)."""
 
     @abstractmethod
     async def list_sessions(self, user_id: str, limit: int = 50) -> list[InterviewSession]: ...
@@ -106,6 +123,12 @@ class AccountStore(ABC):
     @abstractmethod
     async def delete_history(self, user_id: str) -> int:
         """Delete every interview session (with transcripts). Returns how many."""
+
+
+def _json(value) -> dict | None:
+    if value is None:
+        return None
+    return json.loads(value) if isinstance(value, str) else dict(value)
 
 
 def _valid_uuid(value: str) -> bool:
@@ -157,14 +180,28 @@ class MemoryAccountStore(AccountStore):
         if self._owned(user_id, session_id):
             self._turns[session_id].append(Turn(speaker, text, now()))
 
-    async def add_answer(self, user_id, session_id, *, question, question_type, answer, status):
+    async def add_answer(
+        self, user_id, session_id, *, question, question_type, answer, status, timings=None
+    ):
         if self._owned(user_id, session_id):
-            self._answers[session_id].append(Answer(question, question_type, answer, status, now()))
+            self._answers[session_id].append(
+                Answer(question, question_type, answer, status, now(), timings)
+            )
+
+    async def answer_timings(self, since):
+        return [
+            AnswerTiming(a.created_at, a.question_type, a.status, a.timings)
+            for answers in self._answers.values()
+            for a in answers
+            if a.timings and a.created_at >= since
+        ]
 
     async def finish_session(self, user_id, session_id, audio_seconds):
         s = self._owned(user_id, session_id)
         if s:
-            self._sessions[session_id] = replace(s, ended_at=now(), audio_seconds=audio_seconds)
+            self._sessions[session_id] = replace(
+                s, ended_at=now(), audio_seconds=s.audio_seconds + audio_seconds
+            )
 
     async def list_sessions(self, user_id, limit=50):
         rows = [
@@ -263,20 +300,38 @@ class PostgresAccountStore(AccountStore):
                 uuid.UUID(session_id), user_id, speaker, text,
             )
 
-    async def add_answer(self, user_id, session_id, *, question, question_type, answer, status):
+    async def add_answer(
+        self, user_id, session_id, *, question, question_type, answer, status, timings=None
+    ):
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """insert into session_answers
-                       (session_id, user_id, question, question_type, answer, status)
-                   select id, user_id, $3, $4, $5, $6 from interview_sessions
+                       (session_id, user_id, question, question_type, answer, status, timings)
+                   select id, user_id, $3, $4, $5, $6, $7::jsonb from interview_sessions
                    where id = $1 and user_id = $2""",
                 uuid.UUID(session_id), user_id, question, question_type, answer, status,
+                json.dumps(timings) if timings else None,
             )
+
+    async def answer_timings(self, since):
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """select created_at, question_type, status, timings from session_answers
+                   where created_at >= $1 and timings is not null order by created_at""",
+                since,
+            )
+        return [
+            AnswerTiming(r["created_at"], r["question_type"], r["status"],
+                         json.loads(r["timings"]) if isinstance(r["timings"], str)
+                         else dict(r["timings"]))
+            for r in rows
+        ]
 
     async def finish_session(self, user_id, session_id, audio_seconds):
         async with self._pool.acquire() as conn:
             await conn.execute(
-                """update interview_sessions set ended_at = now(), audio_seconds = $3
+                """update interview_sessions
+                   set ended_at = now(), audio_seconds = audio_seconds + $3
                    where id = $1 and user_id = $2""",
                 uuid.UUID(session_id), user_id, audio_seconds,
             )
@@ -314,13 +369,14 @@ class PostgresAccountStore(AccountStore):
                 "order by id", sid,
             )
             answers = await conn.fetch(
-                "select question, question_type, answer, status, created_at from session_answers "
+                "select question, question_type, answer, status, created_at, timings "
+                "from session_answers "
                 "where session_id = $1 order by id", sid,
             )
         return (
             self._session(row),
             [Turn(**dict(t)) for t in turns],
-            [Answer(**dict(a)) for a in answers],
+            [Answer(**{**dict(a), "timings": _json(a["timings"])}) for a in answers],
         )
 
     async def delete_session(self, user_id, session_id):

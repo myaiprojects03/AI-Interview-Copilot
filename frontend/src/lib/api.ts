@@ -175,3 +175,27 @@ export const deleteAllMyData = () =>
   request<{ deleted_documents: number; deleted_interviews: number }>("/me/data", {
     method: "DELETE",
   });
+
+// ---- Admin ---------------------------------------------------------------------------------
+
+type Summary = { count: number; p50: number; p90: number; p95: number; max: number };
+
+export type LatencyReport = {
+  days: number;
+  answers: number;
+  statuses: Record<string, number>;
+  metrics: { key: string; label: string; summary: Summary | null }[];
+  daily: ({ day: string } & Partial<Summary>)[];
+  recent: {
+    at: string;
+    question_type: string | null;
+    status: string;
+    speech_end_to_first_token_ms?: number | null;
+    stt_ms?: number | null;
+    retrieval_ms?: number | null;
+    llm_first_token_ms?: number | null;
+    llm_total_ms?: number | null;
+  }[];
+};
+
+export const getLatency = (days: number) => request<LatencyReport>(`/admin/latency?days=${days}`);

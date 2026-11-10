@@ -71,13 +71,55 @@ async def test_groq_llm_sends_reasoning_effort_only_when_set():
 
 
 @respx.mock
-async def test_groq_llm_http_error_is_provider_error():
-    respx.post(f"{BASE}/chat/completions").mock(
-        return_value=httpx.Response(429, text="rate limited")
+async def test_groq_llm_rate_limit_retries_once_then_explains(no_sleep):
+    route = respx.post(f"{BASE}/chat/completions").mock(
+        return_value=httpx.Response(429, text="rate limited", headers={"retry-after": "30"})
     )
     llm = GroqLLM(api_key="test", model="m", base_url=BASE)
-    with pytest.raises(ProviderError, match="429"):
+    with pytest.raises(ProviderError, match="rate limit"):
         [p async for p in llm.stream_chat([ChatMessage("user", "hi")])]
+    assert route.call_count == 2
+    assert no_sleep == [4.0]  # Retry-After honoured but capped
+
+
+@respx.mock
+async def test_groq_llm_recovers_on_second_attempt(no_sleep):
+    sse = 'data: {"choices": [{"delta": {"content": "ok"}}]}\n\ndata: [DONE]\n\n'
+    respx.post(f"{BASE}/chat/completions").mock(
+        side_effect=[httpx.Response(503, text="busy"), httpx.Response(200, text=sse)]
+    )
+    llm = GroqLLM(api_key="test", model="m", base_url=BASE)
+    assert [p async for p in llm.stream_chat([ChatMessage("user", "hi")])] == ["ok"]
+
+
+@respx.mock
+async def test_groq_llm_bad_request_is_not_retried(no_sleep):
+    route = respx.post(f"{BASE}/chat/completions").mock(
+        return_value=httpx.Response(400, text="bad model")
+    )
+    llm = GroqLLM(api_key="test", model="m", base_url=BASE)
+    with pytest.raises(ProviderError, match="400"):
+        [p async for p in llm.stream_chat([ChatMessage("user", "hi")])]
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_groq_stt_retries_once(no_sleep):
+    route = respx.post(f"{BASE}/audio/transcriptions").mock(
+        side_effect=[httpx.Response(500, text="oops"),
+                     httpx.Response(200, json={"text": "Hello there"})]
+    )
+    stt = GroqWhisperSTT(api_key="test", model="w", base_url=BASE)
+    assert (await stt.transcribe(b"RIFF")).text == "Hello there"
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_groq_stt_network_failure_twice_is_an_error(no_sleep):
+    respx.post(f"{BASE}/audio/transcriptions").mock(side_effect=httpx.ConnectError("down"))
+    stt = GroqWhisperSTT(api_key="test", model="w", base_url=BASE)
+    with pytest.raises(ProviderError, match="Could not reach"):
+        await stt.transcribe(b"RIFF")
 
 
 @respx.mock
@@ -91,3 +133,17 @@ async def test_groq_stt_returns_transcript():
     result = await stt.transcribe(b"RIFF....")
     assert result.text == "Why do you want this job?"
     assert result.duration_seconds == 2.1
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    """Skip retry waits; record how long each one would have been."""
+    waits: list[float] = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    import asyncio as _asyncio
+
+    monkeypatch.setattr(_asyncio, "sleep", fake_sleep)
+    return waits

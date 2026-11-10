@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     paddle_price_pro: str | None = None
     app_url: str = "http://localhost:3000"  # where billing redirects users back to
 
+    # Comma-separated emails that can open the admin latency view.
+    admin_emails: str = ""
+
+    @property
+    def admin_email_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+
     @property
     def auth_enabled(self) -> bool:
         secret = self.supabase_jwt_secret

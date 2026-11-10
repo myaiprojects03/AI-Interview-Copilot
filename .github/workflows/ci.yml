@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app tests scripts
+      # Unit, API and WebSocket tests use fake AI providers and in-memory storage, so no
+      # secrets are needed. Real-database tests skip unless TEST_DATABASE_URL is set.
+      - run: pytest -q
+        env:
+          LLM_PROVIDER: fake
+          STT_PROVIDER: fake
+          EMBEDDING_PROVIDER: fake
+
+  docker:
+    # Builds the production image exactly as Render will, then checks it starts and serves
+    # /health (fake providers, no secrets).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t copilot-api backend
+      - name: Start the image and check /health
+        run: |
+          docker run -d --name api -p 8000:8000 \
+            -e ENVIRONMENT=development -e LLM_PROVIDER=fake -e STT_PROVIDER=fake \
+            copilot-api
+          for i in $(seq 1 30); do
+            if curl -fsS localhost:8000/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs api
+          exit 1
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://example.invalid

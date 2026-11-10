@@ -1,10 +1,12 @@
 """Groq LLM provider (free tier). Groq exposes an OpenAI-compatible API."""
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
 import httpx
 
+from app.providers import retry
 from app.providers.base import ChatMessage, LLMProvider, ProviderError
 
 
@@ -42,28 +44,42 @@ class GroqLLM(LLMProvider):
         if self._reasoning_effort:
             payload["reasoning_effort"] = self._reasoning_effort
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                async with client.stream(
-                    "POST", f"{self._base_url}/chat/completions", json=payload, headers=headers
-                ) as response:
-                    if response.status_code != 200:
-                        body = (await response.aread()).decode(errors="replace")[:300]
-                        raise ProviderError(
-                            f"Groq LLM returned HTTP {response.status_code}: {body}"
-                        )
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[len("data:"):].strip()
-                        if data == "[DONE]":
-                            break
-                        chunk = json.loads(data)
-                        choices = chunk.get("choices") or []
-                        if not choices:
-                            continue
-                        delta = choices[0].get("delta", {}).get("content")
-                        if delta:
-                            yield delta
-        except httpx.HTTPError as exc:
-            raise ProviderError(f"Could not reach Groq LLM: {exc.__class__.__name__}") from exc
+        # Retry once if the request fails before any text arrives (rate limit, 5xx, network).
+        # Once tokens are streaming, a failure is reported instead: replaying would repeat text.
+        started = False
+        for attempt in range(retry.ATTEMPTS):
+            last = attempt == retry.ATTEMPTS - 1
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    async with client.stream(
+                        "POST", f"{self._base_url}/chat/completions", json=payload, headers=headers
+                    ) as response:
+                        if response.status_code != 200:
+                            body = (await response.aread()).decode(errors="replace")
+                            if response.status_code in retry.RETRYABLE_STATUS and not last:
+                                await asyncio.sleep(retry.wait_seconds(response))
+                                continue
+                            raise ProviderError(
+                                retry.error_message("The AI (Groq)", response.status_code, body)
+                            )
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[len("data:"):].strip()
+                            if data == "[DONE]":
+                                break
+                            chunk = json.loads(data)
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta", {}).get("content")
+                            if delta:
+                                started = True
+                                yield delta
+                        return
+            except httpx.HTTPError as exc:
+                if started or last:
+                    raise ProviderError(
+                        f"Could not reach the AI (Groq): {exc.__class__.__name__}"
+                    ) from exc
+                await asyncio.sleep(retry.DEFAULT_WAIT_S)

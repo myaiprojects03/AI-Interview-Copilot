@@ -45,6 +45,9 @@ function Copilot() {
   const pausedRef = useRef(false);
   const sessionTypeRef = useRef<SessionType>(sessionType);
   const selectedRef = useRef(selected);
+  const historyRef = useRef<string | null>(null);
+  const slowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [slow, setSlow] = useState(false);
 
   useEffect(() => {
     listDocuments()
@@ -85,6 +88,7 @@ function Copilot() {
   const start = async () => {
     setRun("starting");
     dispatch({ type: "reset" });
+    historyRef.current = null; // a new Start is a new interview
     try {
       const tab = mode === "meeting" ? await getTabAudio() : null;
       if (tab) streamsRef.current.push(tab);
@@ -107,8 +111,18 @@ function Copilot() {
           dispatch({ type: "server", event });
           // The server ends the session when the month's minutes run out.
           if (event.type === "limit_reached") stop();
+          if (event.type === "history") historyRef.current = event.id;
         },
-        onStatus: setSocketStatus,
+        onStatus: (status) => {
+          setSocketStatus(status);
+          // Free hosting sleeps when idle; tell the user if waking it up takes a while.
+          if (slowTimer.current) clearTimeout(slowTimer.current);
+          if (status === "connecting" || status === "reconnecting") {
+            slowTimer.current = setTimeout(() => setSlow(true), 5000);
+          } else {
+            setSlow(false);
+          }
+        },
         getToken: accessToken,
         onOpen: () => [
           {
@@ -116,6 +130,7 @@ function Copilot() {
             session_type: sessionTypeRef.current,
             cv_id: selectedRef.current.cv || null,
             jd_id: selectedRef.current.jd || null,
+            history_id: historyRef.current,
           },
         ],
       });
@@ -170,6 +185,11 @@ function Copilot() {
       <AppHeader />
       <div className="flex flex-wrap items-center gap-3 border-b border-black/10 px-4 py-2 dark:border-white/10 sm:px-6">
         <StatusPill run={run} socket={socketStatus} />
+        {slow && run !== "idle" && (
+          <span className="text-xs text-amber-700 dark:text-amber-300">
+            Waking up the server. On free hosting this can take up to a minute.
+          </span>
+        )}
         {state.usage && <MinutesLeft seconds={state.usage.remainingSeconds} />}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Select

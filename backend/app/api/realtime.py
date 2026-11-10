@@ -5,13 +5,14 @@ Client -> server
   binary: 1 byte channel (0 = interviewer / tab audio, 1 = candidate / mic)
           + 16 kHz mono PCM16 little-endian audio
   text:   {"type": "start", "session_type": "mixed" | "behavioral" | "technical",
-           "cv_id": id | "latest" | null, "jd_id": id | "latest" | null}
+           "cv_id": id | "latest" | null, "jd_id": id | "latest" | null,
+           "history_id": id to continue after a reconnect (optional)}
           {"type": "set_session_type", "session_type": ...}
           {"type": "pause"} | {"type": "answer_now"} | {"type": "regenerate"}
           {"type": "stop_answer"}
 
 Server -> client (JSON)
-  ready, usage, context, speech, transcript, transcript_discard, suggestion_start,
+  ready, usage, context, history, speech, transcript, transcript_discard, suggestion_start,
   suggestion_delta, suggestion_end, limit_reached, error. See app/realtime/session.py.
   Close codes: 4401 not signed in, 4402 monthly minutes used up (don't reconnect).
 """
@@ -20,6 +21,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -102,6 +104,25 @@ async def _who(ws: WebSocket, settings, verifier) -> User:
     return await authenticate(first.get("token"), settings, verifier)
 
 
+RESUME_WINDOW = timedelta(minutes=30)
+
+
+async def _history_for(accounts: AccountStore, user_id: str, session, msg: dict) -> str:
+    """After a reconnect the browser sends the interview it was on ("history_id") so the
+    transcript continues in one place. Only the owner's recent interviews can be resumed."""
+    resume = msg.get("history_id")
+    if isinstance(resume, str) and resume:
+        found = await accounts.get_session(user_id, resume)
+        if found and datetime.now(UTC) - found[0].started_at < RESUME_WINDOW:
+            return resume
+    ctx = session.context
+    return await accounts.create_session(
+        user_id,
+        cv_title=ctx.cv.title if ctx.cv else "Sample CV",
+        jd_title=ctx.jd.title if ctx.jd else None,
+    )
+
+
 @router.websocket("/ws/session")
 async def session_socket(
     ws: WebSocket,
@@ -147,7 +168,7 @@ async def session_socket(
                 await accounts.add_answer(
                     user.id, history_id, question=item["question"],
                     question_type=item["question_type"], answer=item["answer"],
-                    status=item["status"],
+                    status=item["status"], timings=item.get("timings"),
                 )
         except Exception:  # noqa: BLE001 - history must never break the live session
             log.exception("saving interview history failed")
@@ -233,12 +254,8 @@ async def session_socket(
                         )
                     outbound.put_nowait({"type": "context", **session.context.public()})
                     if history_id is None:
-                        ctx = session.context
-                        history_id = await accounts.create_session(
-                            user.id,
-                            cv_title=ctx.cv.title if ctx.cv else "Sample CV",
-                            jd_title=ctx.jd.title if ctx.jd else None,
-                        )
+                        history_id = await _history_for(accounts, user.id, session, msg)
+                        outbound.put_nowait({"type": "history", "id": history_id})
                 session.on_control(msg)
     except WebSocketDisconnect:
         pass

@@ -40,7 +40,7 @@ async def get_session(session_id: str, user_id: UserDep, accounts: AccountsDep) 
         "turns": [{"speaker": t.speaker, "text": t.text, "at": t.created_at} for t in turns],
         "answers": [
             {"question": a.question, "question_type": a.question_type, "answer": a.answer,
-             "status": a.status, "at": a.created_at}
+             "status": a.status, "at": a.created_at, "timings": a.timings or {}}
             for a in answers
         ],
     }

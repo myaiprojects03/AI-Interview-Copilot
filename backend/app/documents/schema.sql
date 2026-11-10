@@ -85,6 +85,10 @@ create table if not exists session_answers (
 );
 create index if not exists session_answers_session_idx on session_answers (session_id, id);
 
+-- Phase 4: per-answer latency (ms) for the admin view.
+alter table session_answers add column if not exists timings jsonb;
+create index if not exists session_answers_created_idx on session_answers (created_at);
+
 alter table subscriptions enable row level security;
 alter table usage_monthly enable row level security;
 alter table interview_sessions enable row level security;

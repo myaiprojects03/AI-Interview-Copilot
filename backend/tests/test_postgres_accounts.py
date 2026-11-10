@@ -3,7 +3,7 @@ Uses throwaway user ids and deletes what it creates."""
 
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -41,8 +41,12 @@ async def test_subscription_usage_and_history_round_trip():
         sid = await store.create_session(me, cv_title="CV", jd_title=None)
         await store.add_turn(me, sid, "interviewer", "Why us?")
         await store.add_turn(other, sid, "interviewer", "not mine")  # ignored: wrong owner
+        started = datetime.now(UTC) - timedelta(minutes=5)  # tolerate clock skew
         await store.add_answer(me, sid, question="Why us?", question_type="general",
-                               answer="Because…", status="done")
+                               answer="Because…", status="done",
+                               timings={"stt_ms": 210, "llm_first_token_ms": 480})
+        mine = [t for t in await store.answer_timings(started) if t.timings.get("stt_ms") == 210]
+        assert mine and mine[0].timings["llm_first_token_ms"] == 480
         await store.finish_session(me, sid, 42.0)
 
         listed = await store.list_sessions(me)

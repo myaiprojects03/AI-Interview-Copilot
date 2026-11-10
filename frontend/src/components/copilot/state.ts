@@ -126,6 +126,8 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
         }),
       };
     }
+    case "history":
+      return state; // kept in a ref by the view, nothing to render
     case "error":
       return { ...state, error: e.message };
   }

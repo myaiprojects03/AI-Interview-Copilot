@@ -345,5 +345,5 @@ class CopilotSession:
             if text.strip():
                 self._record(
                     {"kind": "answer", "question": question, "question_type": kind.type,
-                     "answer": text, "status": status}
+                     "answer": text, "status": status, "timings": dict(timings)}
                 )
