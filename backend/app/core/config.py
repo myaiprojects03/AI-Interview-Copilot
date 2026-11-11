@@ -3,13 +3,14 @@
 Secrets are never hard-coded. Providers are chosen by name so they can be swapped by config.
 """
 
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -24,7 +25,27 @@ class Settings(BaseSettings):
 
     app_name: str = "AI Interview Copilot"
     environment: Literal["development", "staging", "production", "test"] = "development"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # Accepts a JSON list, comma-separated URLs or a single URL; trailing "/" is dropped.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_origins(cls, value):
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("["):
+                try:
+                    value = json.loads(text)
+                except ValueError:
+                    value = text.strip("[]").split(",")
+            else:
+                value = text.split(",")
+        return [o.strip().strip("'\"").rstrip("/") for o in value if o.strip().strip("'\"")]
+
+    @field_validator("app_url", mode="before")
+    @classmethod
+    def _trim_app_url(cls, value):
+        return value.strip().strip("'\"").rstrip("/") if isinstance(value, str) else value
 
     # Provider selection ("fake" providers need no keys and are used in tests).
     llm_provider: Literal["groq", "fake"] = "groq"

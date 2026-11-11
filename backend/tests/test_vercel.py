@@ -117,3 +117,21 @@ def test_flush_finishes_a_sentence_cut_short_by_a_switch():
             if e["type"] == "transcript" and e["final"]:
                 break
     assert e["text"] == "Tell me about yourself."
+
+
+@pytest.mark.parametrize("raw", [
+    '["https://copilot.vercel.app"]',
+    'https://copilot.vercel.app/',
+    '[https://copilot.vercel.app]',
+    "['https://copilot.vercel.app']",
+    ' "https://copilot.vercel.app" ',
+])
+def test_cors_origins_accepts_any_reasonable_format(monkeypatch, raw):
+    monkeypatch.setenv("CORS_ORIGINS", raw)
+    assert Settings(_env_file=None).cors_origins == ["https://copilot.vercel.app"]
+
+
+def test_cors_origins_comma_separated(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.vercel.app, http://localhost:3000")
+    assert Settings(_env_file=None).cors_origins == ["https://a.vercel.app",
+                                                     "http://localhost:3000"]
