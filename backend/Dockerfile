@@ -3,19 +3,18 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    FASTEMBED_CACHE_PATH=/app/models
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Bake the embedding model (~67 MB) into the image so a cold start doesn't download it.
-RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')" \
-    && chmod -R a+rX /app/models
-
 COPY app ./app
+COPY scripts ./scripts
+
+# Bake the embedding model (~67 MB) into the image so a cold start doesn't download it.
+RUN python -m scripts.fetch_model && chmod -R a+rX /app/models
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser

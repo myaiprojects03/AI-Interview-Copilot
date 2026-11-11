@@ -16,7 +16,7 @@ because each one sits behind an interface (see `backend/app/providers/`), but no
 | LLM | OpenAI | **Groq (`openai/gpt-oss-120b`, reasoning effort `low`)** | Free tier with rate limits; first token ~0.5 s in our test. Alternatives on the same key: `openai/gpt-oss-20b`, `qwen/qwen3.8-27b` | OpenAI, Claude |
 | LLM fallback | — | **Google Gemini Flash (free tier)** | Free tier with rate limits | — |
 | CV / JD parsing | PyMuPDF, python-docx | **pypdf + python-docx** | Open source. pypdf has a permissive licence (PyMuPDF is AGPL, a problem for a closed-source SaaS) | PyMuPDF commercial licence |
-| Embeddings | OpenAI embeddings | **fastembed (`BAAI/bge-small-en-v1.5`, local ONNX)** | Free, runs on CPU, no API key; ~5 ms per question; ~67 MB model downloaded on first start | OpenAI embeddings |
+| Embeddings | OpenAI embeddings | **`BAAI/bge-small-en-v1.5` (local ONNX via onnxruntime)** | Free, runs on CPU, no API key; ~5 ms per question; ~67 MB model downloaded on first start | OpenAI embeddings |
 | Vector store | Pinecone | **pgvector inside Supabase Postgres** | Free; one database, so the API stays stateless with no per-instance FAISS files | Pinecone |
 | Database | PostgreSQL | **Supabase Postgres (free project)** | 500 MB DB; free projects pause after a week of no activity | Supabase Pro, Neon |
 | Auth | Auth.js / Clerk | **Supabase Auth (email + Google)** | 50k monthly active users free | — |

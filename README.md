@@ -84,7 +84,7 @@ extra Whisper request.
 
 Open http://localhost:3000/documents to upload a CV (PDF, DOCX, TXT, MD) and paste or upload
 a job description. Each is split into sections (a role keeps its title, company and dates),
-embedded locally with fastembed, and summarised once by the LLM. On the copilot page, pick
+embedded locally (bge-small, ONNX on CPU), and summarised once by the LLM. On the copilot page, pick
 which CV and job description to use before pressing Start.
 
 For each question the copilot:

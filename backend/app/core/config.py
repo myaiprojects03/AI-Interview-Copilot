@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # lost on restart (fine for tests and a first try, not for real use).
     database_url: SecretStr | None = None
 
-    # Local embeddings (fastembed, free). "fake" is a keyword-hash stand-in for tests.
+    # Local embeddings (bge-small ONNX on CPU, free). "fake" is a keyword-hash stand-in for tests.
     embedding_provider: Literal["local", "fake"] = "local"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     # Folder with a pre-downloaded model (relative paths are inside backend/). Used on Vercel,

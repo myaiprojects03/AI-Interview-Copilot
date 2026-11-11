@@ -3,3 +3,4 @@ pytest==8.3.4
 pytest-asyncio==0.25.2
 respx==0.22.0
 ruff==0.8.6
+tokenizers==0.23.3  # only to check our tokenizer matches (tests/test_wordpiece.py)
