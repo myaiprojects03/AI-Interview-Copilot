@@ -77,11 +77,34 @@ async def _apply_documents(
 
 AUTH_TIMEOUT_S = 10.0
 METER_FLUSH_S = 15.0  # write usage to the database every 15 s of live audio
+# Serverless hosts (Vercel) stop the function as soon as the socket closes, so the final save
+# may never run there: save more often to lose at most a few seconds.
+METER_FLUSH_SERVERLESS_S = 5.0
 BYTES_PER_SECOND = 16000 * 2  # 16 kHz, 16-bit mono
 CLOSE_AUTH = 4401
 CLOSE_LIMIT = 4402
 CLOSE_TIME_UP = 4408  # host's connection time limit reached: the browser reconnects at once
 MAX_RECENT_LINES = 12
+
+
+# At most ~12 answer messages a second; the eye can't tell, the connection can.
+DELTA_PACE_S = 0.08
+
+
+def coalesce_deltas(events: list[dict]) -> list[dict]:
+    """Merge back-to-back pieces of the same answer into one message, keeping order."""
+    out: list[dict] = []
+    for event in events:
+        last = out[-1] if out else None
+        if (
+            last is not None
+            and event.get("type") == "suggestion_delta" == last.get("type")
+            and event.get("id") == last.get("id")
+        ):
+            out[-1] = {**last, "text": last["text"] + event["text"]}
+        else:
+            out.append(event)
+    return out
 
 
 def _limit_message(plan: str) -> str:
@@ -195,6 +218,11 @@ async def session_socket(
         used = await accounts.add_usage(user.id, month_key(), seconds) if seconds else (
             used_at_start + metered
         )
+        if seconds and history_id:
+            # Keep the history entry current as we go: serverless hosts may stop the
+            # function as soon as the socket closes, before the cleanup below runs.
+            with contextlib.suppress(Exception):
+                await accounts.finish_session(user.id, history_id, seconds)
         outbound.put_nowait({"type": "usage", "plan": usage["plan"], "limit_seconds": limit,
                              "remaining_seconds": max(0.0, limit - used)})
         return used
@@ -206,12 +234,22 @@ async def session_socket(
     )
 
     async def sender() -> None:
+        # Everything queued while the last send was in flight goes out together, with answer
+        # pieces merged. Through a slow relay (Vercel) one message per few words would back
+        # up the connection and delay the interviewer's audio behind it.
         while True:
-            await ws.send_json(await outbound.get())
+            batch = [await outbound.get()]
+            while not outbound.empty():
+                batch.append(outbound.get_nowait())
+            for event in coalesce_deltas(batch):
+                await ws.send_json(event)
+            if any(e.get("type") == "suggestion_delta" for e in batch):
+                await asyncio.sleep(DELTA_PACE_S)  # let the next few words gather
 
     send_task = asyncio.create_task(sender())
     write_task = asyncio.create_task(writer())
     limit_s = settings.ws_limit_seconds
+    flush_every = METER_FLUSH_SERVERLESS_S if limit_s else METER_FLUSH_S
 
     async def time_up() -> None:
         # Mirrors the host's cut (Vercel Hobby: 300 s) so it behaves the same everywhere. The
@@ -240,7 +278,7 @@ async def session_socket(
                     metered += seconds
                     unflushed += seconds
                     over = used_at_start + metered >= limit
-                    if unflushed >= METER_FLUSH_S or over:
+                    if unflushed >= flush_every or over:
                         if await flush() >= limit:
                             outbound.put_nowait({"type": "limit_reached", "plan": usage["plan"],
                                                  "message": _limit_message(usage["plan"])})
@@ -278,6 +316,7 @@ async def session_socket(
         pass
     finally:
         await session.close()
+        leftover = unflushed  # earlier audio was already added to the history entry
         with contextlib.suppress(Exception):
             if unflushed:
                 await accounts.add_usage(user.id, month_key(), unflushed)
@@ -285,7 +324,7 @@ async def session_socket(
                 write_task.cancel()
                 while not writes.empty():
                     await write(writes.get_nowait())
-                await accounts.finish_session(user.id, history_id, metered)
+                await accounts.finish_session(user.id, history_id, leftover)
         for task in (send_task, write_task, timer_task):
             if task is None:
                 continue

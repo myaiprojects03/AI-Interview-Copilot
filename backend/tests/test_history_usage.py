@@ -164,3 +164,18 @@ def test_reconnect_continues_the_same_interview(auth_client):
             if e["type"] == "history":
                 assert e["id"] != history_id
                 break
+
+
+def test_history_is_kept_current_during_the_session(auth_client, monkeypatch):
+    """Serverless hosts may stop right after the socket closes, so the history entry's audio
+    time is saved as the session goes, and the final save doesn't count it twice."""
+    monkeypatch.setattr("app.api.realtime.METER_FLUSH_S", 0.5)
+    accounts = auth_client.app.state.accounts
+    with auth_client.websocket_connect("/ws/session") as ws:
+        open_session(ws)
+        events = run_question(ws)
+        history_id = next(e["id"] for e in events if e["type"] == "history")
+        live = asyncio.run(accounts.get_session("user-1", history_id))[0]
+        assert live.audio_seconds >= 1.5 and live.ended_at is not None
+    final = asyncio.run(accounts.get_session("user-1", history_id))[0]
+    assert abs(final.audio_seconds - 2.0) < 0.05
