@@ -54,3 +54,23 @@ async def test_round_trip_and_user_scoping():
         for d in await store.list_documents(me):
             await store.delete(me, d.id)
         await store.close()
+
+
+async def test_many_instances_starting_together_do_not_deadlock():
+    """Serverless hosts start several instances at once; each sets up the tables."""
+    import asyncio
+
+    import asyncpg
+
+    from app.documents.store import ensure_schema
+
+    async def start():
+        conn = await asyncpg.connect(DSN, statement_cache_size=0)
+        try:
+            return await ensure_schema(conn)
+        finally:
+            await conn.close()
+
+    results = await asyncio.gather(*(start() for _ in range(6)))
+    assert sum(results) <= 1  # the script runs at most once, then is skipped
+    assert await start() is False

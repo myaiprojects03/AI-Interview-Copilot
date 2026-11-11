@@ -15,22 +15,28 @@ from app.providers.embeddings.local import LocalEmbeddings
 from app.providers.registry import get_embedder
 
 log = logging.getLogger("app")
+STORE_ATTEMPTS = 3
 
 
 async def _open_store(settings: Settings) -> tuple[DocumentStore, str | None]:
     if settings.database_url is None or not settings.database_url.get_secret_value():
         return MemoryStore(), None
-    try:
-        store = await PostgresStore.connect(
-            settings.database_url.get_secret_value(),
-            min_size=settings.db_pool_min,
-            max_size=settings.db_pool_max,
-        )
-        return store, None
-    except Exception as exc:  # noqa: BLE001 - report any connection problem, keep serving
-        message = f"{exc.__class__.__name__}: {exc}"[:300]
-        log.error("Database connection failed, documents will be kept in memory: %s", message)
-        return MemoryStore(), message
+    message = ""
+    for attempt in range(STORE_ATTEMPTS):
+        try:
+            store = await PostgresStore.connect(
+                settings.database_url.get_secret_value(),
+                min_size=settings.db_pool_min,
+                max_size=settings.db_pool_max,
+            )
+            return store, None
+        except Exception as exc:  # noqa: BLE001 - report any connection problem, keep serving
+            message = f"{exc.__class__.__name__}: {exc}"[:300]
+            log.warning("Database connection attempt %d failed: %s", attempt + 1, message)
+            if attempt + 1 < STORE_ATTEMPTS:
+                await asyncio.sleep(0.5 * (attempt + 1))
+    log.error("Database connection failed, documents will be kept in memory: %s", message)
+    return MemoryStore(), message
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

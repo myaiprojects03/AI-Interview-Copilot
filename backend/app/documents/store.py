@@ -8,6 +8,7 @@ Every method takes a user_id and only ever touches that user's rows.
 """
 
 import asyncio
+import hashlib
 import json
 import uuid
 from abc import ABC, abstractmethod
@@ -21,6 +22,34 @@ from app.db import create_pool, retry_on_disconnect
 DocKind = Literal["cv", "jd"]
 
 SCHEMA_SQL = (Path(__file__).with_name("schema.sql")).read_text(encoding="utf-8")
+SCHEMA_HASH = hashlib.sha256(SCHEMA_SQL.encode()).hexdigest()
+# Any fixed number: instances that start together take turns setting up the tables.
+SCHEMA_LOCK_ID = 7_340_112
+
+
+async def ensure_schema(conn) -> bool:
+    """Create or update the tables, once per schema change. Returns True if it ran.
+
+    Serverless hosts start several instances at once. Running the DDL in all of them made
+    their table locks deadlock, so one instance at a time takes an advisory lock (released
+    with the transaction, which also works through the transaction pooler), and the script
+    is skipped when the stored fingerprint already matches.
+    """
+    async with conn.transaction():
+        await conn.execute("select pg_advisory_xact_lock($1)", SCHEMA_LOCK_ID)
+        await conn.execute(
+            "create table if not exists schema_meta (id int primary key, hash text not null)"
+        )
+        current = await conn.fetchval("select hash from schema_meta where id = 1")
+        if current == SCHEMA_HASH:
+            return False
+        await conn.execute(SCHEMA_SQL)
+        await conn.execute(
+            "insert into schema_meta (id, hash) values (1, $1) "
+            "on conflict (id) do update set hash = excluded.hash",
+            SCHEMA_HASH,
+        )
+        return True
 
 
 @dataclass(frozen=True)
@@ -186,7 +215,7 @@ class PostgresStore(DocumentStore):
         # Create the extension and tables before the pool registers the vector type.
         conn = await asyncpg.connect(dsn, statement_cache_size=0)
         try:
-            await conn.execute(SCHEMA_SQL)
+            await ensure_schema(conn)
         finally:
             await conn.close()
         pool = await create_pool(dsn, min_size=min_size, max_size=max_size, init=register_vector)
