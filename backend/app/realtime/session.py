@@ -147,6 +147,12 @@ class CopilotSession:
         for event in ch.segmenter.feed(pcm):
             self._handle_vad_event(ch, event)
 
+    def seed_transcript(self, lines: list[str]) -> None:
+        """Recent conversation carried over from the previous connection, so answers keep
+        their context after the browser switches connections."""
+        self._transcript.clear()
+        self._transcript.extend(lines)
+
     def on_control(self, msg: dict) -> None:
         kind = msg.get("type")
         if kind in ("start", "set_session_type"):
@@ -156,6 +162,12 @@ class CopilotSession:
         elif kind == "pause":
             for ch in self._channels.values():
                 ch.segmenter.reset()
+        elif kind == "flush":
+            # The browser moved to a fresh connection mid-sentence: finish what this one has
+            # heard instead of dropping it.
+            for ch in self._channels.values():
+                for event in ch.segmenter.flush():
+                    self._handle_vad_event(ch, event)
         elif kind == "answer_now":
             question = " ".join(self._pending_question) or self._last_interviewer_text
             if not question:

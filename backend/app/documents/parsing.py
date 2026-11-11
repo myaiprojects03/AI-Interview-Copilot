@@ -8,7 +8,8 @@ from docx import Document as DocxDocument
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+# Vercel rejects request bodies over 4.5 MB, so uploads are capped just below that.
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 SUPPORTED = ".pdf, .docx, .txt or .md"
 
 
@@ -18,7 +19,7 @@ class ParseError(ValueError):
 
 def extract_text(filename: str, data: bytes) -> str:
     if len(data) > MAX_UPLOAD_BYTES:
-        raise ParseError("The file is larger than 5 MB.")
+        raise ParseError("The file is larger than 4 MB. Save it as a smaller PDF or a .docx.")
     if not data:
         raise ParseError("The file is empty.")
     name = filename.lower()

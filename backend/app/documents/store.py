@@ -179,7 +179,7 @@ class PostgresStore(DocumentStore):
         return self._pool
 
     @classmethod
-    async def connect(cls, dsn: str) -> "PostgresStore":
+    async def connect(cls, dsn: str, *, min_size: int = 1, max_size: int = 5) -> "PostgresStore":
         import asyncpg
         from pgvector.asyncpg import register_vector
 
@@ -189,7 +189,7 @@ class PostgresStore(DocumentStore):
             await conn.execute(SCHEMA_SQL)
         finally:
             await conn.close()
-        pool = await create_pool(dsn, init=register_vector)
+        pool = await create_pool(dsn, min_size=min_size, max_size=max_size, init=register_vector)
         return cls(pool)
 
     async def close(self) -> None:

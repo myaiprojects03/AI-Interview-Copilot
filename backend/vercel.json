@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "python -m scripts.fetch_model",
+  "regions": ["hnd1"],
+  "functions": {
+    "app/main.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{tests/**,evals/**,scripts/**,.venv/**,.pytest_cache/**,.ruff_cache/**,**/__pycache__/**,Dockerfile,requirements-dev.txt}"
+    }
+  }
+}

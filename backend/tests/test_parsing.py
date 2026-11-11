@@ -45,7 +45,7 @@ def test_docx_paragraphs_lists_and_tables():
         ("cv.docx", b"not a zip", "couldn't be read"),
         ("cv.txt", b"too short", "enough text"),
         ("cv.txt", b"", "empty"),
-        ("cv.txt", b"x" * (5 * 1024 * 1024 + 1), "5 MB"),
+        ("cv.txt", b"x" * (4 * 1024 * 1024 + 1), "4 MB"),
     ],
     ids=["exe", "old-doc", "broken-pdf", "broken-docx", "too-short", "empty", "too-big"],
 )

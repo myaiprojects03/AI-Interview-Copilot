@@ -54,7 +54,7 @@ def get_embedder(settings: Settings) -> EmbeddingProvider:
         return FakeEmbeddings()
     from app.providers.embeddings.local import LocalEmbeddings
 
-    return LocalEmbeddings(settings.embedding_model)
+    return LocalEmbeddings(settings.embedding_model, cache_dir=settings.model_cache_dir)
 
 
 def provider_status(settings: Settings) -> dict:

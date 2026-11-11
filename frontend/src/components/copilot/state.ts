@@ -29,8 +29,6 @@ export type Suggestion = {
 };
 
 export type CopilotState = {
-  /** Increments on every (re)connect so ids from a new server session never collide. */
-  epoch: number;
   lines: Line[];
   suggestions: Suggestion[]; // newest first
   speaking: Record<ChannelName, boolean>;
@@ -42,7 +40,6 @@ export type CopilotState = {
 };
 
 export const initialState: CopilotState = {
-  epoch: 0,
   lines: [],
   suggestions: [],
   speaking: { interviewer: false, candidate: false },
@@ -53,7 +50,8 @@ export const initialState: CopilotState = {
 };
 
 export type Action =
-  | { type: "server"; event: ServerEvent }
+  /** conn: which connection sent it. Ids restart on each connection, so keys include it. */
+  | { type: "server"; event: ServerEvent; conn: number }
   | { type: "error"; message: string | null }
   | { type: "reset" };
 
@@ -61,10 +59,11 @@ const MAX_LINES = 200;
 const MAX_SUGGESTIONS = 10;
 
 export function reducer(state: CopilotState, action: Action): CopilotState {
-  if (action.type === "reset") return { ...initialState, epoch: state.epoch };
+  if (action.type === "reset") return initialState;
   if (action.type === "error") return { ...state, error: action.message };
 
   const e = action.event;
+  const conn = action.conn;
   switch (e.type) {
     case "usage":
       return {
@@ -74,13 +73,13 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
     case "limit_reached":
       return { ...state, limitReached: e.message };
     case "ready":
-      return { ...state, epoch: state.epoch + 1, error: null };
+      return { ...state, error: null };
     case "context":
       return { ...state, context: e };
     case "speech":
       return { ...state, speaking: { ...state.speaking, [e.channel]: e.active } };
     case "transcript": {
-      const key = `${state.epoch}-${e.channel}-${e.utterance_id}`;
+      const key = `${conn}-${e.channel}-${e.utterance_id}`;
       const idx = state.lines.findIndex((l) => l.key === key);
       if (idx >= 0) {
         if (state.lines[idx].final && !e.final) return state; // stale partial
@@ -92,13 +91,13 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
       return { ...state, lines: [...state.lines, line].slice(-MAX_LINES) };
     }
     case "transcript_discard": {
-      const key = `${state.epoch}-${e.channel}-${e.utterance_id}`;
+      const key = `${conn}-${e.channel}-${e.utterance_id}`;
       return { ...state, lines: state.lines.filter((l) => l.key !== key) };
     }
     case "suggestion_start": {
       const s: Suggestion = {
         id: e.id,
-        key: `${state.epoch}-${e.id}`,
+        key: `${conn}-${e.id}`,
         question: e.question,
         questionType: e.question_type,
         sources: e.sources ?? [],
@@ -109,7 +108,7 @@ export function reducer(state: CopilotState, action: Action): CopilotState {
     }
     case "suggestion_delta":
     case "suggestion_end": {
-      const key = `${state.epoch}-${e.id}`;
+      const key = `${conn}-${e.id}`;
       return {
         ...state,
         suggestions: state.suggestions.map((s) => {

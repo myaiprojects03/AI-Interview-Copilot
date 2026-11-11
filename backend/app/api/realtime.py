@@ -80,6 +80,8 @@ METER_FLUSH_S = 15.0  # write usage to the database every 15 s of live audio
 BYTES_PER_SECOND = 16000 * 2  # 16 kHz, 16-bit mono
 CLOSE_AUTH = 4401
 CLOSE_LIMIT = 4402
+CLOSE_TIME_UP = 4408  # host's connection time limit reached: the browser reconnects at once
+MAX_RECENT_LINES = 12
 
 
 def _limit_message(plan: str) -> str:
@@ -209,8 +211,18 @@ async def session_socket(
 
     send_task = asyncio.create_task(sender())
     write_task = asyncio.create_task(writer())
+    limit_s = settings.ws_limit_seconds
+
+    async def time_up() -> None:
+        # Mirrors the host's cut (Vercel Hobby: 300 s) so it behaves the same everywhere. The
+        # browser normally switches to a fresh connection well before this.
+        await asyncio.sleep(limit_s)
+        with contextlib.suppress(Exception):
+            await ws.close(code=CLOSE_TIME_UP)
+
+    timer_task = asyncio.create_task(time_up()) if limit_s else None
     await session.start()
-    outbound.put_nowait({"type": "ready"})
+    outbound.put_nowait({"type": "ready", "max_seconds": limit_s} if limit_s else {"type": "ready"})
     outbound.put_nowait({"type": "usage", "plan": usage["plan"], "limit_seconds": limit,
                          "remaining_seconds": usage["remaining_seconds"]})
     try:
@@ -245,6 +257,11 @@ async def session_socket(
                 if not isinstance(msg, dict):
                     continue
                 if msg.get("type") == "start":
+                    recent = msg.get("recent")
+                    if isinstance(recent, list):
+                        session.seed_transcript(
+                            [str(x)[:500] for x in recent[-MAX_RECENT_LINES:] if isinstance(x, str)]
+                        )
                     try:
                         await _apply_documents(session, msg, store, user.id, llm)
                     except Exception:  # noqa: BLE001 - keep the session alive on the sample CV
@@ -269,7 +286,9 @@ async def session_socket(
                 while not writes.empty():
                     await write(writes.get_nowait())
                 await accounts.finish_session(user.id, history_id, metered)
-        for task in (send_task, write_task):
+        for task in (send_task, write_task, timer_task):
+            if task is None:
+                continue
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task

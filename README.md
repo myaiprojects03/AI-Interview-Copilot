@@ -144,6 +144,12 @@ Set `LLM_PROVIDER` / `STT_PROVIDER` in `backend/.env`. Each provider implements 
 `backend/app/providers/base.py`; add a new one and register it in
 `backend/app/providers/registry.py`.
 
+## Deployment
+
+Both the website and the API deploy on **Vercel** (free Hobby plan, no card) as two projects
+from this repository: see [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md). The Docker image
+and `render.yaml` remain for hosts with always-on servers (Render, AWS, Railway).
+
 ## Docker
 
 ```bash

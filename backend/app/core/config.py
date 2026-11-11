@@ -3,6 +3,7 @@
 Secrets are never hard-coded. Providers are chosen by name so they can be swapped by config.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -48,6 +49,32 @@ class Settings(BaseSettings):
     # Local embeddings (fastembed, free). "fake" is a keyword-hash stand-in for tests.
     embedding_provider: Literal["local", "fake"] = "local"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # Folder with a pre-downloaded model (relative paths are inside backend/). Used on Vercel,
+    # where the build bundles the model into backend/models; empty = download on first use.
+    embedding_cache_dir: str | None = None
+
+    # Database pool. Serverless hosts run many small instances, so keep each pool small.
+    db_pool_min: int = 1
+    db_pool_max: int = 5
+
+    # Hosts that cut long connections (Vercel Hobby: 300 s) set this; the server tells the
+    # browser, which switches to a fresh connection before the cut, at a quiet moment.
+    # Unset on Vercel defaults to 300 (the VERCEL env var is present there).
+    ws_max_seconds: int | None = None
+
+    @property
+    def model_cache_dir(self) -> Path | None:
+        if self.embedding_cache_dir:
+            path = Path(self.embedding_cache_dir)
+            return path if path.is_absolute() else BACKEND_DIR / path
+        bundled = BACKEND_DIR / "models"
+        return bundled if bundled.is_dir() else None
+
+    @property
+    def ws_limit_seconds(self) -> int | None:
+        if self.ws_max_seconds:
+            return self.ws_max_seconds
+        return 300 if os.environ.get("VERCEL") == "1" else None
 
     # Sign-in (Supabase Auth). When neither is set and environment is development/test,
     # every request acts as `dev_user_id` so the app runs locally without accounts.

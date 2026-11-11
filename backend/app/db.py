@@ -28,13 +28,13 @@ def _is_disconnect(exc: BaseException) -> bool:
     return isinstance(exc, dropped)
 
 
-async def create_pool(dsn: str, **kwargs):
+async def create_pool(dsn: str, *, min_size: int = 1, max_size: int = 5, **kwargs):
     import asyncpg
 
     return await asyncpg.create_pool(
         dsn,
-        min_size=1,
-        max_size=5,
+        min_size=min_size,
+        max_size=max_size,
         statement_cache_size=0,  # required behind poolers that don't keep prepared statements
         max_inactive_connection_lifetime=IDLE_RECYCLE_S,
         **kwargs,

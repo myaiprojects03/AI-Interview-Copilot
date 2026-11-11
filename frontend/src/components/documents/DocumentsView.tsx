@@ -196,7 +196,7 @@ function UploadForm({
         }`}
       >
         <span className="font-medium">{file ? file.name : "Drop a file here or click to choose"}</span>
-        <span className="text-xs text-muted">PDF, DOCX, TXT or MD · up to 5 MB</span>
+        <span className="text-xs text-muted">PDF, DOCX, TXT or MD · up to 4 MB</span>
         <input
           ref={inputRef}
           type="file"

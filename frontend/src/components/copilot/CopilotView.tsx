@@ -14,7 +14,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { RequireAuth } from "@/components/auth/AuthProvider";
 import { SuggestionText, type Flag } from "@/components/SuggestionText";
 import { accessToken } from "@/lib/supabase";
-import { listDocuments, type DocumentSummary } from "@/lib/api";
+import { API_URL, listDocuments, type DocumentSummary } from "@/lib/api";
 import { initialState, reducer, type Line, type SessionContext, type Suggestion } from "./state";
 
 type RunState = "idle" | "starting" | "live" | "paused";
@@ -46,6 +46,16 @@ function Copilot() {
   const sessionTypeRef = useRef<SessionType>(sessionType);
   const selectedRef = useRef(selected);
   const historyRef = useRef<string | null>(null);
+  // Latest transcript, read when a fresh connection starts (kept in a ref, not state).
+  const linesRef = useRef<Line[]>([]);
+  useEffect(() => {
+    linesRef.current = state.lines;
+  }, [state.lines]);
+
+  // Wake the backend early: on serverless hosts the first request after idle is slow.
+  useEffect(() => {
+    fetch(`${API_URL}/health`).catch(() => {});
+  }, []);
   const slowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [slow, setSlow] = useState(false);
 
@@ -107,8 +117,8 @@ function Copilot() {
       setHasMic(mic !== null);
 
       const socket = new CopilotSocket({
-        onEvent: (event) => {
-          dispatch({ type: "server", event });
+        onEvent: (event, conn) => {
+          dispatch({ type: "server", event, conn });
           // The server ends the session when the month's minutes run out.
           if (event.type === "limit_reached") stop();
           if (event.type === "history") historyRef.current = event.id;
@@ -131,6 +141,7 @@ function Copilot() {
             cv_id: selectedRef.current.cv || null,
             jd_id: selectedRef.current.jd || null,
             history_id: historyRef.current,
+            recent: recentLines(linesRef.current),
           },
         ],
       });
@@ -534,6 +545,14 @@ function ContextBar({
       </Link>
     </div>
   );
+}
+
+/** The last few final transcript lines, sent to a fresh connection for context. */
+function recentLines(lines: Line[]): string[] {
+  return lines
+    .filter((l) => l.final)
+    .slice(-8)
+    .map((l) => `${l.channel === "interviewer" ? "Interviewer" : "Candidate"}: ${l.text}`);
 }
 
 function MinutesLeft({ seconds }: { seconds: number }) {
