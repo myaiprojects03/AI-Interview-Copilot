@@ -1,0 +1,235 @@
+{
+  "summary": {
+    "questions": 15,
+    "wait_median_ms": [
+      1970,
+      599
+    ],
+    "wait_max_ms": [
+      4991,
+      2355
+    ],
+    "answers_with_unsupported_figures": [
+      12,
+      0
+    ],
+    "answers_within_spoken_length": [
+      0,
+      15
+    ],
+    "words_median": [
+      380,
+      100
+    ]
+  },
+  "rows": [
+    {
+      "q": "Tell me about a time you had a conflict with a coworker.",
+      "before_wait_ms": 1974.8677997849882,
+      "after_wait_ms": 591.0682999528944,
+      "before_figures": [
+        "90\u2011day",
+        "2\u202f%"
+      ],
+      "after_figures": [],
+      "before_words": 530,
+      "after_words": 70,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Describe a situation where you had to meet a tight deadline.",
+      "before_wait_ms": 2194.2270998843014,
+      "after_wait_ms": 2354.9091001041234,
+      "before_figures": [
+        "2023",
+        "150\u202fms",
+        "six weeks",
+        "two days",
+        "15\u202f%"
+      ],
+      "after_figures": [],
+      "before_words": 566,
+      "after_words": 103,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Give me an example of when you showed leadership.",
+      "before_wait_ms": 4990.676600020379,
+      "after_wait_ms": 1112.5517999753356,
+      "before_figures": [
+        "90\u2011day",
+        "two weeks"
+      ],
+      "after_figures": [],
+      "before_words": 440,
+      "after_words": 102,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Can you share an example of a project that failed?",
+      "before_wait_ms": 1850.880699697882,
+      "after_wait_ms": 1665.531899780035,
+      "before_figures": [
+        "two weeks",
+        "5\u202f%",
+        "95\u202f%"
+      ],
+      "after_figures": [],
+      "before_words": 500,
+      "after_words": 81,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "What was the hardest production incident you dealt with?",
+      "before_wait_ms": 2189.8754998110235,
+      "after_wait_ms": 599.3880997411907,
+      "before_figures": [
+        "200\u202fms",
+        "0.01\u202f%",
+        "2\u202f%",
+        "15\u202fminutes",
+        "0.001\u202f%",
+        "0.1\u202f%"
+      ],
+      "after_figures": [],
+      "before_words": 529,
+      "after_words": 81,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Write a function that reverses a linked list.",
+      "before_wait_ms": 2339.0906997956336,
+      "after_wait_ms": 617.1385999768972,
+      "before_figures": [],
+      "after_figures": [],
+      "before_words": 252,
+      "after_words": 91,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Can you write a SQL query to find the second highest salary?",
+      "before_wait_ms": 1957.8615999780595,
+      "after_wait_ms": 644.3519997410476,
+      "before_figures": [],
+      "after_figures": [],
+      "before_words": 269,
+      "after_words": 70,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "How would you design a rate limiter for a public API?",
+      "before_wait_ms": 3707.114599645138,
+      "after_wait_ms": 696.2426002137363,
+      "before_figures": [
+        "1\u202fms",
+        "200\u202fms",
+        "5\u202fms",
+        "5\u202f%"
+      ],
+      "after_figures": [],
+      "before_words": 889,
+      "after_words": 122,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "What's the difference between a process and a thread?",
+      "before_wait_ms": 1524.7098999097943,
+      "after_wait_ms": 511.7977000772953,
+      "before_figures": [],
+      "after_figures": [],
+      "before_words": 325,
+      "after_words": 103,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Explain how database indexing works.",
+      "before_wait_ms": 2266.438900027424,
+      "after_wait_ms": 473.9339002408087,
+      "before_figures": [
+        "24\u2011hours",
+        "350\u202fms",
+        "30\u202fms"
+      ],
+      "after_figures": [],
+      "before_words": 678,
+      "after_words": 117,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Can you tell me a little about yourself?",
+      "before_wait_ms": 1357.2978000156581,
+      "after_wait_ms": 548.7549002282321,
+      "before_figures": [
+        "three years"
+      ],
+      "after_figures": [],
+      "before_words": 322,
+      "after_words": 105,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Why do you want to work here?",
+      "before_wait_ms": 1969.6442997083068,
+      "after_wait_ms": 463.80680007860065,
+      "before_figures": [
+        "three years"
+      ],
+      "after_figures": [],
+      "before_words": 380,
+      "after_words": 100,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "What are your greatest strengths?",
+      "before_wait_ms": 1297.723799943924,
+      "after_wait_ms": 771.8601999804378,
+      "before_figures": [
+        "75\u202f%",
+        "three years"
+      ],
+      "after_figures": [],
+      "before_words": 283,
+      "after_words": 93,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "What is your biggest weakness?",
+      "before_wait_ms": 1331.2110998667777,
+      "after_wait_ms": 565.7938001677394,
+      "before_figures": [
+        "15\u2011minute"
+      ],
+      "after_figures": [],
+      "before_words": 268,
+      "after_words": 83,
+      "before_in_limit": false,
+      "after_in_limit": true
+    },
+    {
+      "q": "Where do you see yourself in five years?",
+      "before_wait_ms": 1494.9900000356138,
+      "after_wait_ms": 461.09180012717843,
+      "before_figures": [
+        "three years"
+      ],
+      "after_figures": [],
+      "before_words": 351,
+      "after_words": 103,
+      "before_in_limit": false,
+      "after_in_limit": true
+    }
+  ]
+}

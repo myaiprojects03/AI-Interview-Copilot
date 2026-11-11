@@ -26,3 +26,6 @@ Thumbs.db
 
 # Embedding model downloaded by scripts/fetch_model.py for Vercel builds
 backend/models/
+
+# Local tooling (machine-specific paths)
+.claude/
